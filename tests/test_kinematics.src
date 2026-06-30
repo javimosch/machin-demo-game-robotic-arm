@@ -237,6 +237,25 @@ func main() {
     dset := mk_dough_set()
     check("dough set carries kinds", dset[1].kind == KIND_BAGUETTE())
 
+    // every station slot must be reachable at BOTH descend and hover height, or
+    // the arm would stall trying to arrive at an out-of-reach waypoint
+    allreach := true
+    si := 0
+    while si < N_STATIONS() {
+        ki := 0
+        while ki < N_DOUGH() {
+            sp := station_slot_pos(si, ki)
+            over := Vec3{sp.x, sp.y + 0.70, sp.z}
+            d1, d2, d3, d4, dok := ik_pick_continuous(sp, 0.0)
+            o1, o2, o3, o4, ook := ik_pick_continuous(over, 0.0)
+            if dok == false { allreach = false }
+            if ook == false { allreach = false }
+            ki = ki + 1
+        }
+        si = si + 1
+    }
+    check("all station waypoints reachable", allreach)
+
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
     if g_fail == 0 {

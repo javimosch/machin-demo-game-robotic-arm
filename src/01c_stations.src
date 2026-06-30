@@ -14,18 +14,20 @@ func N_STATIONS() (n) { n = 4 }
 func next_station(st) (n) { n = st + 1 }
 func is_last_station(st) (b) { b = false  if st == ST_COOL() { b = true } }
 
-// station center on the table top (corners around the arm, all within reach)
+// station centers — spread to the corners of a long work area so the arm has to
+// extend near its reach (outer slots land ~2.6; max ~2.77 at table height) to
+// service them. Reachability of every slot is asserted in the headless tests.
 func station_center(st) (p) {
-    p = Vec3{0.0 - 1.9, 0.0, 0.0 - 0.9}              // BIN: back-left
-    if st == ST_PROOF() { p = Vec3{0.0 - 1.9, 0.0, 0.9} }   // front-left
-    if st == ST_OVEN()  { p = Vec3{1.9, 0.0, 0.0 - 0.9} }   // back-right
-    if st == ST_COOL()  { p = Vec3{1.9, 0.0, 0.9} }         // front-right
+    p = Vec3{0.0 - 2.3, 0.0, 0.0 - 0.62}              // BIN: back-left
+    if st == ST_PROOF() { p = Vec3{0.0 - 2.3, 0.0, 0.62} }   // front-left
+    if st == ST_OVEN()  { p = Vec3{2.3, 0.0, 0.0 - 0.62} }   // back-right
+    if st == ST_COOL()  { p = Vec3{2.3, 0.0, 0.62} }         // front-right
 }
 
 // a 2x2 grid of item slots within a station
 func station_slot_xz(st, k) (x, z) {
     c := station_center(st)
-    sp := 0.46
+    sp := 0.40
     ci := k % 2
     ri := k / 2
     x = c.x + (float(ci) - 0.5) * sp

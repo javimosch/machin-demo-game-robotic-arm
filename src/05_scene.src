@@ -6,8 +6,8 @@
 // Workcell PLACEMENT (bin/tray/dough sizing + rest heights) lives in
 // 01b_layout.src — shared with the task logic. These are render-only extents.
 func FLOOR_Y() (v)   { v = 0.0 - 1.8 }
-func TABLE_W() (v)   { v = 6.0 }    // x extent
-func TABLE_D() (v)   { v = 4.0 }    // z extent
+func TABLE_W() (v)   { v = 7.4 }    // x extent — a long work area
+func TABLE_D() (v)   { v = 4.2 }    // z extent
 func TABLE_TH() (v)  { v = 0.20 }
 
 // ── floor ─────────────────────────────────────────────────────────────────

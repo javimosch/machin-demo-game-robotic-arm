@@ -280,9 +280,9 @@ func main() {
 
         task_step(tip)
 
-        cx := sin(cam_a) * 9.5
-        cz := cos(cam_a) * 9.5
-        cam := Camera3D{Vector3{cx, 6.5, cz}, Vector3{0.0, 1.0, 0.0}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
+        cx := sin(cam_a) * 11.5
+        cz := cos(cam_a) * 11.5
+        cam := Camera3D{Vector3{cx, 7.5, cz}, Vector3{0.0, 1.0, 0.0}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
 
         BeginDrawing()
         ClearBackground(C_BG())
