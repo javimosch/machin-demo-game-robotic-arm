@@ -155,4 +155,35 @@ func draw_stations(t) {
     draw_pad(cc, 1.35, C_TRAY())
     draw_low_walls(cc, 1.35, 0.10, C_TRAY_RIM())
     draw_slot_marks(ST_COOL())
+
+    // DISPLAY — client counter with a row of loaves on show
+    draw_client_counter()
+    draw_slot_marks(ST_DISPLAY())
+
+    // charging dock (far-right of the rail)
+    ch := CHARGE_POS()
+    rlPushMatrix() rlTranslatef(ch.x, 0.18, ch.z) DrawCube(v3z(), 0.5, 0.36, 0.5, col(50, 54, 62)) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(ch.x, 0.38, ch.z) DrawCube(v3z(), 0.4, 0.04, 0.4, col(90, 220, 110)) rlPopMatrix()
+}
+
+// the client-facing counter (in front, +z) that holds the display loaves
+func draw_client_counter() {
+    cz := 3.3
+    w := 7.0
+    d := 1.4
+    th := 0.20
+    rlPushMatrix()
+    rlTranslatef(0.0, 0.0 - th / 2.0, cz)
+    DrawCube(v3z(), w, th, d, C_TABLE())
+    DrawCubeWires(v3z(), w, th, d, C_TABLE_LEG())
+    rlPopMatrix()
+    draw_leg(0.0 - 3.0, cz - 0.5)
+    draw_leg(3.0, cz - 0.5)
+    draw_leg(0.0 - 3.0, cz + 0.5)
+    draw_leg(3.0, cz + 0.5)
+    // back display shelf panel
+    rlPushMatrix()
+    rlTranslatef(0.0, 0.6, cz + 0.62)
+    DrawCube(v3z(), w, 1.2, 0.10, col(110, 88, 64))
+    rlPopMatrix()
 }

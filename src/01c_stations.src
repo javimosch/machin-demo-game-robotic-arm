@@ -5,28 +5,41 @@
 // occupies that slot at whichever station it currently sits in, so routing never
 // needs occupancy bookkeeping.
 
-func ST_BIN() (n)   { n = 0 }
-func ST_PROOF() (n) { n = 1 }
-func ST_OVEN() (n)  { n = 2 }
-func ST_COOL() (n)  { n = 3 }
-func N_STATIONS() (n) { n = 4 }
+func ST_BIN() (n)     { n = 0 }
+func ST_PROOF() (n)   { n = 1 }
+func ST_OVEN() (n)    { n = 2 }
+func ST_COOL() (n)    { n = 3 }
+func ST_DISPLAY() (n) { n = 4 }   // client-facing display (final)
+func N_STATIONS() (n) { n = 5 }
+func ST_FINAL() (n)   { n = 4 }
 
 func next_station(st) (n) { n = st + 1 }
-func is_last_station(st) (b) { b = false  if st == ST_COOL() { b = true } }
+func is_last_station(st) (b) { b = false  if st == ST_FINAL() { b = true } }
 
-// station centers — spread to the corners of a long work area so the arm has to
-// extend near its reach (outer slots land ~2.6; max ~2.77 at table height) to
-// service them. Reachability of every slot is asserted in the headless tests.
+// rail-arm parking / charging dock (far-right end of the rail) — a reachable
+// rest pose just in front of the carriage at the right end
+func CHARGE_POS() (p) { p = Vec3{3.0, 1.0, 3.0} }
+
+// station centers. bin/proof/oven/cool sit at the production table's corners
+// (outer slots ~2.6, near the pedestal arm's reach). DISPLAY is a wide row on
+// the client counter in front (+z), serviced by the rail arm.
 func station_center(st) (p) {
     p = Vec3{0.0 - 2.3, 0.0, 0.0 - 0.62}              // BIN: back-left
     if st == ST_PROOF() { p = Vec3{0.0 - 2.3, 0.0, 0.62} }   // front-left
     if st == ST_OVEN()  { p = Vec3{2.3, 0.0, 0.0 - 0.62} }   // back-right
     if st == ST_COOL()  { p = Vec3{2.3, 0.0, 0.62} }         // front-right
+    if st == ST_DISPLAY() { p = Vec3{0.0, 0.0, 3.5} }        // client counter
 }
 
-// a 2x2 grid of item slots within a station
+// item slots: a 2x2 grid for production stations; a wide 1xN row along X for the
+// display (so the rail arm traverses to place each loaf)
 func station_slot_xz(st, k) (x, z) {
     c := station_center(st)
+    if st == ST_DISPLAY() {
+        x = c.x + (float(k) - 1.5) * 1.2
+        z = c.z
+        return
+    }
     sp := 0.40
     ci := k % 2
     ri := k / 2
@@ -58,4 +71,5 @@ func station_name(st) (s) {
     if st == ST_PROOF() { s = "proof" }
     if st == ST_OVEN()  { s = "oven" }
     if st == ST_COOL()  { s = "cool" }
+    if st == ST_DISPLAY() { s = "display" }
 }

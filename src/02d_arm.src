@@ -7,7 +7,7 @@
 // kind: 0 = pedestal (fixed base), 1 = rail-mounted (base slides along world X).
 
 type Arm struct {
-    kind int
+    mount int
     base Vec3  base_yaw float
     rail float  rail_min float  rail_max float
     joints []Joint  grip float  dgrip float
@@ -35,6 +35,7 @@ func REL_GAP() (v)    { v = 0.16 }
 func GRIP_RATE() (v)  { v = 3.0 }
 func ARRIVE_EPS() (v) { v = 0.08 }
 func PHYS_H() (v)     { v = 1.0 / 60.0 }
+func RAIL_VMAX() (v)  { v = 2.5 }     // rail carriage speed (units/s)
 func hold_grip() (v)  { v = grip_for_force(DOUGH_R(), GRIP_SAFE_F()) }
 func NEUTRAL() (p)    { p = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0} }
 
@@ -54,6 +55,22 @@ func mk_pedestal_arm() (a) {
     a = Arm{0, nz, 0.0, 0.0, 0.0, 0.0, mk_joints5(), 1.0, 1.0,
             P_IDLE(), 0.0, 0 - 1, 0, nz, nz, NEUTRAL(), 0.0, 0.0,
             ST_BIN(), ST_COOL(), NEUTRAL()}
+}
+
+// a rail-mounted arm on the client side: slides along X (base at z=2.6, facing
+// the production table) to pick cooled loaves from COOL and place them on the
+// DISPLAY; parks at the charging dock when idle
+func mk_rail_arm() (a) {
+    a = mk_pedestal_arm()
+    a.mount = 1
+    a.base = Vec3{0.0, 0.0, 2.6}
+    a.base_yaw = 180.0
+    a.rail_min = 0.0 - 2.6
+    a.rail_max = 3.4
+    a.serves_lo = ST_COOL()
+    a.serves_hi = ST_DISPLAY()
+    a.park = CHARGE_POS()
+    a.target = CHARGE_POS()
 }
 
 // ── frame transforms (world <-> the arm's mount frame) ─────────────────────
@@ -112,6 +129,15 @@ func step_joints5(js, t1, t2, t3, t4, t5, h) (out) {
     }
 }
 
+// move a rail carriage toward bringing the target's world-X under the base
+func rail_step(a, dt) (r) {
+    r = a.rail
+    rt := clampf(a.target.x - a.base.x, a.rail_min, a.rail_max)
+    step := RAIL_VMAX() * dt
+    if rt > r { r = minf(r + step, rt) }
+    if rt < r { r = maxf(r - step, rt) }
+}
+
 func arm_drive(a, dt) (out) {
     out = a
     out.phase_t = a.phase_t + dt
@@ -123,8 +149,11 @@ func arm_drive(a, dt) (out) {
     if a.dgrip < g { g = maxf(g - gr, a.dgrip) }
     out.grip = g
 
-    // IK in the arm's local frame, then fixed-timestep actuator integration
-    lt := world_to_local(a, a.target)
+    // rail carriage (kind 1) slides to put the target's X under the base
+    if a.mount == 1 { out.rail = rail_step(a, dt) }
+
+    // IK in the arm's local frame (post-rail), then actuator integration
+    lt := world_to_local(out, a.target)
     j1t, j2t, j3t, j4t, ok := ik_pick_continuous(lt, a.joints[2].angle)
     js := a.joints
     acc := a.acc + dt

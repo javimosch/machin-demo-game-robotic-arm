@@ -144,7 +144,7 @@ func main() {
           vapprox(fk_tip(u1, u2, u3, u4), fk_tip(d1, d2, d3, d4), 0.0001))
 
     // --- stations: layout + routing ---
-    check("4 stations", N_STATIONS() == 4)
+    check("5 stations", N_STATIONS() == 5)
     check("next: bin->proof", next_station(ST_BIN()) == ST_PROOF())
     check("next: proof->oven", next_station(ST_PROOF()) == ST_OVEN())
     check("next: oven->cool", next_station(ST_OVEN()) == ST_COOL())
@@ -199,7 +199,8 @@ func main() {
     jidx, jfound := choose_job(sched)
     check("scheduler finds a job", jfound)
     check("scheduler prefers furthest-along", jidx == 1)
-    check("cooled item is not 'ready'", ready_to_advance(Dough{station_slot_pos(ST_COOL(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_COOL(), 0.0, 1.0, 1, 1, 1.0, 0, 0, 0.0}) == false)
+    check("cooled item IS ready (-> display)", ready_to_advance(Dough{station_slot_pos(ST_COOL(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_COOL(), 0.0, 1.0, 1, 1, 1.0, 0, 0, 0.0}))
+    check("displayed item is final (not ready)", ready_to_advance(Dough{station_slot_pos(ST_DISPLAY(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_DISPLAY(), 0.0, 1.0, 1, 1, 1.0, 0, 0, 0.0}) == false)
 
     // --- grip-force mechanics + dough deformation ---
     r := DOUGH_R()
@@ -239,9 +240,11 @@ func main() {
 
     // every station slot must be reachable at BOTH descend and hover height, or
     // the arm would stall trying to arrive at an out-of-reach waypoint
+    // the pedestal arm services the production stations (bin..cool); the display
+    // is the rail arm's job (checked separately below)
     allreach := true
     si := 0
-    while si < N_STATIONS() {
+    while si < ST_DISPLAY() {
         ki := 0
         while ki < N_DOUGH() {
             sp := station_slot_pos(si, ki)
@@ -278,6 +281,65 @@ func main() {
     check("arm scheduler picks furthest-along", aj == 1)
     aj2, af2 := choose_job_for_arm(arm_sched, ST_COOL(), ST_COOL() + 1)
     check("arm scheduler respects range (none)", af2 == false)
+
+    // --- rail arm (Phase B/C): rail tracking + reachability of its stations ---
+    rb := mk_rail_arm()
+    check("rail arm is rail-mounted", rb.mount == 1)
+    check("display is the final station", ST_FINAL() == ST_DISPLAY())
+    // rail steps toward the target's world-X (clamped to the rail span)
+    rb.target = Vec3{2.3, 0.3, 0.62}
+    moved_rail := rail_step(rb, 1.0)
+    check("rail advances toward target X", moved_rail > rb.rail)
+    rb.target = Vec3{99.0, 0.3, 0.62}
+    check("rail clamps to its span", rail_step(rb, 100.0) <= rb.rail_max + 0.0001)
+
+    // with the rail positioned under each COOL + DISPLAY slot, the arm reaches it
+    railok := true
+    rs := 0
+    while rs < N_DOUGH() {
+        cpos := station_slot_pos(ST_COOL(), rs)
+        dpos := station_slot_pos(ST_DISPLAY(), rs)
+        rca := mk_rail_arm()  rca.rail = clampf(cpos.x - rca.base.x, rca.rail_min, rca.rail_max)  rca.target = cpos
+        rda := mk_rail_arm()  rda.rail = clampf(dpos.x - rda.base.x, rda.rail_min, rda.rail_max)  rda.target = dpos
+        lc := world_to_local(rca, cpos)
+        ld := world_to_local(rda, dpos)
+        c1, c2, c3, c4, cok := ik_pick_continuous(lc, 0.0)
+        e1, e2, e3, e4, eok := ik_pick_continuous(ld, 0.0)
+        if cok == false { railok = false }
+        if eok == false { railok = false }
+        rs = rs + 1
+    }
+    check("rail arm reaches every cool + display slot", railok)
+    // charging/park pose is reachable
+    rp := mk_rail_arm()
+    rp.rail = clampf(CHARGE_POS().x - rp.base.x, rp.rail_min, rp.rail_max)
+    pk1, pk2, pk3, pk4, pkok := ik_pick_continuous(world_to_local(rp, CHARGE_POS()), 0.0)
+    check("rail arm can reach the charging pose", pkok)
+
+    // --- integration: stepping a full arm controller advances the cell ---
+    rads := mk_dough_set()
+    ra := mk_rail_arm()
+    ic := 0
+    while ic < 30 {
+        ra = arm_drive(ra, 1.0 / 60.0)
+        rtip := arm_world_tip(ra)
+        ra = arm_fsm(ra, rads, rtip)
+        ic = ic + 1
+    }
+    check("rail arm controller steps cleanly", ra.mount == 1)
+    // a pedestal arm should move the first item out of the bin within ~10s
+    pa := mk_pedestal_arm()
+    pds := mk_dough_set()
+    grabbed := false
+    ig := 0
+    while ig < 700 {
+        pa = arm_drive(pa, 1.0 / 60.0)
+        ptip := arm_world_tip(pa)
+        pa = arm_fsm(pa, pds, ptip)
+        if pds[0].station != ST_BIN() { grabbed = true }
+        ig = ig + 1
+    }
+    check("pedestal arm advances an item out of the bin", grabbed)
 
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))

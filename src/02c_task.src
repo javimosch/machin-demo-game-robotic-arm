@@ -109,6 +109,7 @@ func item_process(d, dt) (o) {
 
 // ── routing scheduler ──────────────────────────────────────────────────────
 // an item is ready to advance once it is resting and its station process is done
+// (cooled items are ready to move to the display; display is final)
 func ready_to_advance(d) (b) {
     b = false
     if d.state == 0 {
@@ -116,6 +117,7 @@ func ready_to_advance(d) (b) {
         if st == ST_BIN() { b = true }
         if st == ST_PROOF() { if d.proc_t >= proc_dur(ST_PROOF()) { b = true } }
         if st == ST_OVEN() { if d.proc_t >= proc_dur(ST_OVEN()) { b = true } }
+        if st == ST_COOL() { b = true }
     }
 }
 
@@ -135,11 +137,12 @@ func choose_job(ds) (idx, found) {
     if best >= 0 { found = true }
 }
 
-func all_cooled(ds) (b) {
+// every item has reached the final station (the display)
+func all_final(ds) (b) {
     b = true
     i := 0
     while i < len(ds) {
-        if ds[i].station != ST_COOL() { b = false }
+        if ds[i].station != ST_FINAL() { b = false }
         i = i + 1
     }
 }

@@ -84,9 +84,22 @@ func draw_arm(j1, j2, j3, j4, j5, grip) {
     rlPopMatrix()
 }
 
+// the rail track + sliding carriage for a rail-mounted arm (world space)
+func draw_rail(a) {
+    z := a.base.z
+    x0 := a.base.x + a.rail_min
+    x1 := a.base.x + a.rail_max
+    cx := (x0 + x1) / 2.0
+    rlPushMatrix() rlTranslatef(cx, 0.05, z - 0.20) DrawCube(v3z(), x1 - x0, 0.08, 0.08, col(86, 90, 100)) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(cx, 0.05, z + 0.20) DrawCube(v3z(), x1 - x0, 0.08, 0.08, col(86, 90, 100)) rlPopMatrix()
+    // carriage at the current base
+    rlPushMatrix() rlTranslatef(a.base.x + a.rail, 0.12, z) DrawCube(v3z(), 0.74, 0.18, 0.64, C_BASE()) rlPopMatrix()
+}
+
 // draw an Arm in its world mount frame (base position + rail + yaw), then its
 // articulated body + hydraulic cylinders (computed in the arm-local frame)
 func draw_arm_world(a) {
+    if a.mount == 1 { draw_rail(a) }
     rlPushMatrix()
     rlTranslatef(a.base.x + a.rail, a.base.y, a.base.z)
     rlRotatef(a.base_yaw, 0.0, 1.0, 0.0)

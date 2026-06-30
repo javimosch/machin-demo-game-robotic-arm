@@ -24,25 +24,27 @@ func count_spoiled() (n) {
 }
 
 func draw_hud() {
-    DrawText("MACHIN ROBOTIC ARM  —  conveyor-fed bakery line (multi-arm core)",
+    DrawText("MACHIN ROBOTIC ARM  —  two-arm bakery cell (production + rail display)",
              16, 14, 20, C_WHITE())
-    DrawText("frame-aware []Arm  |  routing scheduler  |  proof -> score -> oven -> cool",
+    DrawText("pedestal arm: bin->proof->oven->cool   |   rail arm: cool->display, parks to charge",
              16, 42, 16, C_DIM())
 
     a0 := g_arms[0]
-    DrawText("phase   " + phase_name(a0.phase), 16, 68, 16, C_DIM())
+    a1 := g_arms[1]
+    DrawText("prod " + phase_name(a0.phase) + "      rail " + phase_name(a1.phase), 16, 68, 16, C_DIM())
 
-    done := g_cycles * N_DOUGH() + count_at(g_dough, ST_COOL())
+    done := g_cycles * N_DOUGH() + count_at(g_dough, ST_DISPLAY())
     mins := maxf(g_elapsed / 60.0, 0.0001)
     rate := float(done) / mins
-    kp := "KPI   baked " + str(done) + "   throughput " + str(r1(rate)) + "/min"
-    kp = kp + "   uptime " + str(int(g_elapsed)) + "s   trays " + str(g_cycles) + "   spoiled " + str(count_spoiled())
+    kp := "KPI   displayed " + str(done) + "   throughput " + str(r1(rate)) + "/min"
+    kp = kp + "   uptime " + str(int(g_elapsed)) + "s   loops " + str(g_cycles) + "   spoiled " + str(count_spoiled())
     DrawText(kp, 16, WIN_H() - 110, 18, C_WHITE())
 
     kl := "pipeline   bin " + str(count_at(g_dough, ST_BIN()))
     kl = kl + "   proof " + str(count_at(g_dough, ST_PROOF()))
     kl = kl + "   oven " + str(count_at(g_dough, ST_OVEN()))
     kl = kl + "   cool " + str(count_at(g_dough, ST_COOL()))
+    kl = kl + "   display " + str(count_at(g_dough, ST_DISPLAY()))
     DrawText(kl, 16, WIN_H() - 84, 16, C_DIM())
 
     j1 := a0.joints[0].angle  j2 := a0.joints[1].angle  j3 := a0.joints[2].angle  j4 := a0.joints[3].angle
@@ -67,7 +69,8 @@ func main() {
     InitWindow(WIN_W(), WIN_H(), TITLE())
     SetTargetFPS(60)
 
-    g_arms = append(g_arms, mk_pedestal_arm())
+    g_arms = append(g_arms, mk_pedestal_arm())   // production arm
+    g_arms = append(g_arms, mk_rail_arm())       // rail-mounted display arm
     g_dough = mk_dough_set()
 
     while WindowShouldClose() == false {
@@ -94,8 +97,8 @@ func main() {
             j = j + 1
         }
 
-        // reset the run once everything has reached the final station
-        if all_cooled(g_dough) {
+        // reset the run once every loaf has reached the display
+        if all_final(g_dough) {
             g_reset_t = g_reset_t + dt
             if g_reset_t > 1.6 {
                 g_dough = reset_dough(g_dough)
@@ -106,9 +109,9 @@ func main() {
             g_reset_t = 0.0
         }
 
-        cx := sin(cam_a) * 11.5
-        cz := cos(cam_a) * 11.5
-        cam := Camera3D{Vector3{cx, 7.5, cz}, Vector3{0.0, 1.0, 0.0}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
+        cx := sin(cam_a) * 13.5
+        cz := cos(cam_a) * 13.5
+        cam := Camera3D{Vector3{cx, 9.0, cz + 0.8}, Vector3{0.0, 1.0, 0.8}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
 
         BeginDrawing()
         ClearBackground(C_BG())

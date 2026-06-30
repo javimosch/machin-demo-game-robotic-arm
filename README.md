@@ -64,7 +64,13 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
 - **Step 9 — conveyor feed + KPIs.** ✅ Raw dough arrives on an **animated feed
   conveyor**; a HUD KPI panel shows finished loaves, **throughput/min**, uptime,
   trays completed, and rejects, plus the live pipeline counts per station.
-  **90 headless tests pass.**
+- **Multi-arm core + second arm.** ✅ Refactored to a frame-aware `[]Arm`
+  (`02d_arm.src`: each arm carries its base frame, joints, FSM, and serviced
+  station range — all pure/value-semantic). Added a **rail-mounted display arm**:
+  it slides along a rail (a prismatic base axis) to pick **cooled** loaves and
+  set them on a **client-facing display counter**, parking at a **charging dock**
+  when idle. Two arms run concurrently with a clean handoff at the cool tray
+  (`bin→proof→oven→cool` **→ rail →** `display`). **106 headless tests pass.**
 
 ## Test
 
