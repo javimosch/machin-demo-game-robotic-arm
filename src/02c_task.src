@@ -1,37 +1,86 @@
 // machin-demo-game-robotic-arm — 02c_task.src
-// Dough objects + payload physics for the pick-and-place task. Pure (no extern),
-// headless-tested. The pick-and-place STATE MACHINE itself lives in 06_main.src
-// (it drives IK targets and frame timing); the testable pieces — object setup,
-// grasp/release, and gravity settling — live here.
+// Dough objects, grip-force mechanics, and payload physics for the pick-and-place
+// task. Pure (no extern), headless-tested. The pick-and-place STATE MACHINE lives
+// in 06_main.src; the testable pieces — object setup, grasp/release, grip force,
+// dough deformation, and gravity settling — live here.
 
 // state: 0 = resting in bin, 1 = grasped (glued to gripper), 2 = falling,
 //        3 = placed (resting on the tray)
-type Dough struct { pos Vec3  vel Vec3  state int  slot int }
+// squish: 1.0 = round, <1 = flattened by grip force; spoiled: 1 = crushed (ruined)
+type Dough struct { pos Vec3  vel Vec3  state int  slot int  squish float  spoiled int }
 
+// ── grip-force mechanics ──────────────────────────────────────────────────
+// The gripper opening g in [0,1] maps to a finger gap (see 04_arm draw_gripper).
+// Closing past the ball's contact opening builds force; force flattens the dough
+// and, past a threshold, crushes it. Gentle handling = grip to a target FORCE,
+// not all the way shut.
+func GRIP_STIFF() (v)   { v = 600.0 }   // force per unit of over-close
+func GRIP_SAFE_F() (v)  { v = 30.0 }    // target holding force (gentle)
+func GRIP_SPOIL_F() (v) { v = 120.0 }   // above this the dough is ruined
+func SQUISH_K() (v)     { v = 0.0025 }  // flatten per unit force
+
+// opening at which the fingers first touch a ball of the given radius
+func grip_contact(radius) (g) {
+    g = (radius - GRIP_BASE_GAP()) / GRIP_SPAN()
+    g = clampf(g, 0.0, 1.0)
+}
+
+// contact force for a given opening + ball radius (0 if not yet touching)
+func grip_force(grip, radius) (f) {
+    gc := grip_contact(radius)
+    f = maxf(0.0, gc - grip) * GRIP_STIFF()
+}
+
+// the opening that yields a desired holding force on a ball of this radius
+func grip_for_force(radius, target_f) (g) {
+    gc := grip_contact(radius)
+    g = gc - target_f / GRIP_STIFF()
+    g = clampf(g, 0.0, 1.0)
+}
+
+// vertical squish factor produced by a contact force
+func squish_from_force(f) (s) { s = clampf(1.0 - f * SQUISH_K(), 0.55, 1.0) }
+
+// ── dough set ──────────────────────────────────────────────────────────────
 func mk_dough_set() (ds) {
     ds = []Dough{}
     i := 0
     while i < N_DOUGH() {
-        ds = append(ds, Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1})
+        ds = append(ds, Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0})
         i = i + 1
     }
 }
 
-// reset every ball back to its bin source, unplaced
+// reset every ball back to its bin source, unplaced & pristine
 func reset_dough(ds) (out) {
     out = ds
     i := 0
     while i < len(out) {
-        out[i] = Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1}
+        out[i] = Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0}
         i = i + 1
     }
 }
 
-func dough_grasp(d) (o)  { o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 1, d.slot} }
-func dough_release(d) (o) { o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 2, d.slot} }
+func dough_grasp(d) (o) {
+    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 1, d.slot, d.squish, d.spoiled}
+}
 
-// glue a grasped ball to the gripper tip
-func dough_hold(d, tip) (o) { o = Dough{tip, Vec3{0.0, 0.0, 0.0}, 1, d.slot} }
+// release a held ball: it springs back to round unless it was crushed
+func dough_release(d) (o) {
+    sq := 1.0
+    if d.spoiled == 1 { sq = 0.70 }
+    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 2, d.slot, sq, d.spoiled}
+}
+
+// glue a grasped ball to the gripper tip, applying grip-force deformation
+func dough_hold(d, tip, grip) (o) {
+    f := grip_force(grip, DOUGH_R())
+    sq := squish_from_force(f)
+    sp := d.spoiled
+    if f > GRIP_SPOIL_F() { sp = 1 }
+    if sp == 1 { sq = minf(sq, 0.70) }
+    o = Dough{tip, Vec3{0.0, 0.0, 0.0}, 1, d.slot, sq, sp}
+}
 
 // integrate one falling ball under gravity; rest on the tray surface
 func dough_fall(d, dt) (out) {
@@ -41,9 +90,9 @@ func dough_fall(d, dt) (out) {
         ny := d.pos.y + nvy * dt
         rest := DOUGH_REST_TRAY()
         if ny <= rest {
-            out = Dough{Vec3{d.pos.x, rest, d.pos.z}, Vec3{0.0, 0.0, 0.0}, 3, d.slot}
+            out = Dough{Vec3{d.pos.x, rest, d.pos.z}, Vec3{0.0, 0.0, 0.0}, 3, d.slot, d.squish, d.spoiled}
         } else {
-            out = Dough{Vec3{d.pos.x, ny, d.pos.z}, Vec3{0.0, nvy, 0.0}, 2, d.slot}
+            out = Dough{Vec3{d.pos.x, ny, d.pos.z}, Vec3{0.0, nvy, 0.0}, 2, d.slot, d.squish, d.spoiled}
         }
     }
 }

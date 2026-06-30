@@ -20,7 +20,8 @@ func P_RESET() (n)      { n = 9 }
 
 func HOVER() (v)        { v = 0.70 }   // safe height above pick/place
 func REL_GAP() (v)      { v = 0.16 }   // release a little above the slot -> drop
-func GRIP_CLOSED() (v)  { v = 0.12 }
+// the gentle holding opening: grip to a safe FORCE, not all the way shut
+func hold_grip() (v) { v = grip_for_force(DOUGH_R(), GRIP_SAFE_F()) }
 func GRIP_RATE() (v)    { v = 3.0 }    // gripper open/close speed (units/s)
 func ARRIVE_EPS() (v)   { v = 0.08 }   // tip-on-target tolerance
 
@@ -82,7 +83,8 @@ func enter_phase(p) {
     rel := Vec3{0.0, REL_GAP(), 0.0}
 
     if p == P_START() {
-        g_dough[g_cur] = Dough{g_dough[g_cur].pos, g_dough[g_cur].vel, g_dough[g_cur].state, g_slot}
+        d0 := g_dough[g_cur]
+        g_dough[g_cur] = Dough{d0.pos, d0.vel, d0.state, g_slot, d0.squish, d0.spoiled}
         g_pick = g_dough[g_cur].pos
         g_place = slot_pos(g_slot)
         enter_phase(P_OVER_PICK())
@@ -90,10 +92,10 @@ func enter_phase(p) {
     }
     if p == P_OVER_PICK()  { g_target = vadd(g_pick, up)   g_dgrip = 1.0 }
     if p == P_DESC_PICK()  { g_target = g_pick             g_dgrip = 1.0 }
-    if p == P_GRASP()      { g_target = g_pick             g_dgrip = GRIP_CLOSED() }
-    if p == P_LIFT()       { g_target = vadd(g_pick, up)   g_dgrip = GRIP_CLOSED() }
-    if p == P_OVER_PLACE() { g_target = vadd(g_place, up)  g_dgrip = GRIP_CLOSED() }
-    if p == P_DESC_PLACE() { g_target = vadd(g_place, rel) g_dgrip = GRIP_CLOSED() }
+    if p == P_GRASP()      { g_target = g_pick             g_dgrip = hold_grip() }
+    if p == P_LIFT()       { g_target = vadd(g_pick, up)   g_dgrip = hold_grip() }
+    if p == P_OVER_PLACE() { g_target = vadd(g_place, up)  g_dgrip = hold_grip() }
+    if p == P_DESC_PLACE() { g_target = vadd(g_place, rel) g_dgrip = hold_grip() }
     if p == P_RELEASE()    { g_target = vadd(g_place, rel) g_dgrip = 1.0 }
     if p == P_RETRACT()    { g_target = vadd(g_place, up)  g_dgrip = 1.0 }
     if p == P_RESET()      { g_target = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0}  g_dgrip = 1.0 }
@@ -118,7 +120,7 @@ func task_step(tip) {
     } else if g_phase == P_DESC_PICK() {
         if arrived(tip) { if g_phase_t > 0.2 { enter_phase(P_GRASP()) } }
     } else if g_phase == P_GRASP() {
-        if g_grip <= GRIP_CLOSED() + 0.02 { if g_phase_t > 0.35 {
+        if g_grip <= hold_grip() + 0.02 { if g_phase_t > 0.35 {
             g_dough[g_cur] = dough_grasp(g_dough[g_cur])
             enter_phase(P_LIFT())
         } }
@@ -176,16 +178,30 @@ func count_placed() (n) {
     }
 }
 
+func count_spoiled() (n) {
+    n = 0
+    i := 0
+    while i < len(g_dough) {
+        if g_dough[i].spoiled == 1 { n = n + 1 }
+        i = i + 1
+    }
+}
+
 func draw_hud() {
-    DrawText("MACHIN ROBOTIC ARM  —  step 5: autonomous bakery pick & place",
+    DrawText("MACHIN ROBOTIC ARM  —  step 6: grip-force control + dough deformation",
              16, 14, 20, C_WHITE())
-    DrawText("4-DOF hydraulic arm  |  analytic IK  |  grasp -> lift -> place -> drop  |  fully autonomous",
+    DrawText("hydraulic arm  |  analytic IK  |  grips to a SAFE FORCE so the dough isn't crushed",
              16, 42, 16, C_DIM())
 
     a1 := g_joints[0].angle
     a2 := g_joints[1].angle
     a3 := g_joints[2].angle
     a4 := g_joints[3].angle
+
+    gf := grip_force(g_grip, DOUGH_R())
+    gl := "grip   force " + str(r1(gf)) + " N   (safe " + str(r1(GRIP_SAFE_F()))
+    gl = gl + ", crush > " + str(r1(GRIP_SPOIL_F())) + ")   spoiled " + str(count_spoiled())
+    DrawText(gl, 16, 68, 16, C_DIM())
 
     sl := "phase   " + phase_name(g_phase) + "      placed " + str(count_placed()) + " / " + str(N_SLOTS())
     sl = sl + "      trays done " + str(g_cycles)
@@ -208,7 +224,7 @@ func draw_all_dough() {
         d := g_dough[i]
         placed := false
         if d.state == 3 { placed = true }
-        draw_dough(d.pos, placed)
+        draw_dough(d.pos, placed, d.squish, d.spoiled)
         i = i + 1
     }
 }
@@ -250,7 +266,7 @@ func main() {
         tip := fk_tip(a1, a2, a3, a4)
 
         // keep a grasped ball glued to the gripper; settle any falling balls
-        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip) }
+        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip, g_grip) }
         i := 0
         while i < len(g_dough) {
             g_dough[i] = dough_fall(g_dough[i], dt)

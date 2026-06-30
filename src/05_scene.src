@@ -65,12 +65,16 @@ func draw_bin() {
     rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
 }
 
-// a single dough ball at a world position, tinted by whether it's been baked-in
-func draw_dough(p, placed) {
+// a single dough ball: tinted by placed/spoiled state, flattened by grip squish
+func draw_dough(p, placed, squish, spoiled) {
     c := C_DOUGH()
     if placed { c = col(214, 170, 110) }   // golden once set on the tray
+    if spoiled == 1 { c = col(150, 70, 60) }   // crushed = ruined, dark
+    sy := clampf(squish, 0.4, 1.0)
+    sxz := 1.0 / sqrt(sy)                   // bulge sideways as it flattens
     rlPushMatrix()
     rlTranslatef(p.x, p.y, p.z)
+    rlScalef(sxz, sy, sxz)
     DrawSphere(v3z(), DOUGH_R(), c)
     rlPopMatrix()
 }

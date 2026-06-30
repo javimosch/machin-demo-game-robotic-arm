@@ -167,7 +167,7 @@ func main() {
     check("release -> state 2", rd.state == 2)
 
     // a released ball above the tray falls and settles in its slot
-    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0}
+    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0, 1.0, 0}
     miny := 999.0
     fi := 0
     while fi < 200 {
@@ -182,6 +182,33 @@ func main() {
     // a ball still in the bin is untouched by gravity
     still := dough_fall(ds[1], 1.0 / 60.0)
     check("in-bin dough unaffected by gravity", vapprox(still.pos, ds[1].pos, 0.0001))
+
+    // --- grip-force mechanics + dough deformation ---
+    r := DOUGH_R()
+    gc := grip_contact(r)
+    check("grip_contact in (0,1)", gc > 0.0 == true)
+    check("grip_force zero when open", approx(grip_force(1.0, r), 0.0, 0.0001))
+    check("grip_force rises as it closes", grip_force(0.1, r) > grip_force(0.5, r))
+    // grip_for_force achieves the requested holding force
+    gsafe := grip_for_force(r, GRIP_SAFE_F())
+    check("grip_for_force hits target", approx(grip_force(gsafe, r), GRIP_SAFE_F(), 0.5))
+    check("safe grip does NOT spoil", grip_force(gsafe, r) < GRIP_SPOIL_F())
+    // the old "slam shut to 0.12" would have crushed the dough
+    check("full-close would crush dough", grip_force(GRIP_BASE_GAP(), r) > GRIP_SPOIL_F())
+    // squish: in range, monotonic, gentler force flattens less
+    check("squish in [0.55,1]", squish_from_force(50.0) >= 0.55)
+    check("more force -> more squish", squish_from_force(100.0) < squish_from_force(10.0))
+    // dough_hold: gentle grip flattens a bit, never spoils
+    held := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, gsafe)
+    check("gentle hold: slightly squished", held.squish < 1.0)
+    check("gentle hold: not spoiled", held.spoiled == 0)
+    check("gentle hold: glued to tip", vapprox(held.pos, Vec3{1.0, 0.5, 0.0}, 0.0001))
+    // dough_hold: clamping fully shut crushes it
+    crushed := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, 0.0)
+    check("crush grip spoils dough", crushed.spoiled == 1)
+    // released crushed dough keeps a flattened set
+    rel := dough_release(crushed)
+    check("released crushed dough stays flat", rel.squish < 1.0)
 
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))

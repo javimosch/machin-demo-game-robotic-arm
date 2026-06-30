@@ -18,6 +18,11 @@ func AW2() (v)      { v = 0.34 }   // forearm width (render only)
 // shoulder world height (top of plinth + column)
 func SHOULDER_Y() (v) { v = PLINTH_H() + COL_H() }
 
+// gripper finger geometry (shared by the renderer + the grip-force model):
+// finger gap = GRIP_BASE_GAP + opening*GRIP_SPAN, opening in [0,1]
+func GRIP_BASE_GAP() (v) { v = 0.12 }
+func GRIP_SPAN() (v)     { v = 0.28 }
+
 // distance from the wrist joint to the gripper TIP, along the tool axis.
 // IK places the wrist this far above a straight-down pick target.
 func TOOL_LEN() (v) { v = WR() + 0.50 }

@@ -44,6 +44,17 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   on the baking tray — the grasped ball is glued to the gripper, the released
   ball **falls under gravity** and settles golden in its slot, then the loop
   refills and repeats. Fully autonomous. **56 headless tests pass.**
+- **Step 6 — grip-force + dough deformation.** ✅ The gripper closes to a target
+  *force* (not all the way shut): too little won't hold, too much crushes the
+  dough. Dough visibly squishes under grip force and turns dark/"spoiled" if
+  over-crushed — the arm grips to a safe force so it never does. HUD shows live
+  grip force. **75 headless tests pass.**
+
+Roadmap (Track 2 — bakery production line):
+
+7. Wrist roll (5th DOF) + baguettes (orient elongated items).
+8. Production stations: score → proof → oven → cool.
+9. Conveyor feed + KPI panel.
 
 ## Test
 

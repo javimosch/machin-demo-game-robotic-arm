@@ -24,7 +24,7 @@ func draw_link(L, w, c) {
 // two-finger gripper at the current origin, opening along local X
 func draw_gripper(grip) {
     DrawCube(v3z(), 0.60, 0.18, 0.50, C_GRIP())     // palm
-    gap := 0.12 + grip * 0.28
+    gap := GRIP_BASE_GAP() + grip * GRIP_SPAN()
     rlPushMatrix()
     rlTranslatef(0.0 - gap, 0.28, 0.0)
     DrawCube(v3z(), 0.12, 0.52, 0.40, C_GRIP())     // left finger
