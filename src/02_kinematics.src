@@ -98,6 +98,44 @@ func ik_pick(t) (j1, j2, j3, j4, ok) {
     j4 = j4c
 }
 
+// Continuity-preserving pick. When BOTH elbow branches are feasible, choose the
+// one whose elbow angle is closest to `prev_j3` (the arm's current elbow), so a
+// sweeping target stops flipping the elbow gratuitously. Falls back to whichever
+// branch is feasible, else elbow-up. Same gripper-down wrist solve as ik_pick.
+func ik_pick_continuous(t, prev_j3) (j1, j2, j3, j4, ok) {
+    w := Vec3{t.x, t.y + TOOL_LEN(), t.z}
+    a1, a2, a3, aok := ik_wrist(w, 0.0 - 1.0)   // elbow-up branch
+    b1, b2, b3, bok := ik_wrist(w, 1.0)         // elbow-down branch
+
+    // also require a feasible (wrapped) wrist angle for each branch
+    a4 := wrap180(180.0 - (a2 + a3))
+    b4 := wrap180(180.0 - (b2 + b3))
+    afeas := aok
+    bfeas := bok
+    if a4 < J4_MIN() { afeas = false }
+    if a4 > J4_MAX() { afeas = false }
+    if b4 < J4_MIN() { bfeas = false }
+    if b4 > J4_MAX() { bfeas = false }
+
+    useA := true
+    if afeas {
+        if bfeas {
+            if absf(b3 - prev_j3) < absf(a3 - prev_j3) { useA = false }
+        }
+    } else {
+        if bfeas { useA = false }
+    }
+
+    if useA {
+        j1 = a1  j2 = a2  j3 = a3  j4 = a4  ok = afeas
+    } else {
+        j1 = b1  j2 = b2  j3 = b3  j4 = b4  ok = bfeas
+    }
+    j4c := clampf(j4, J4_MIN(), J4_MAX())
+    if absf(j4c - j4) > 0.000001 { ok = false }
+    j4 = j4c
+}
+
 // ── actuator (damped velocity servo, accel- & velocity-limited) ───────────
 // A joint stores its current angle (deg) and angular velocity (deg/s).
 type Joint struct { angle float  vel float }

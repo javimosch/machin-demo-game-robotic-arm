@@ -229,8 +229,10 @@ func main() {
         if g_dgrip > g_grip { g_grip = minf(g_grip + gr, g_dgrip) }
         if g_dgrip < g_grip { g_grip = maxf(g_grip - gr, g_dgrip) }
 
-        // IK for the current waypoint, then drive the joints (fixed 60 Hz)
-        j1t, j2t, j3t, j4t, ok := ik_pick(g_target)
+        // IK for the current waypoint (continuity-preserving: pass the current
+        // elbow angle so the branch doesn't flip gratuitously), then drive the
+        // joints (fixed 60 Hz)
+        j1t, j2t, j3t, j4t, ok := ik_pick_continuous(g_target, g_joints[2].angle)
         g_acc = g_acc + dt
         h := PHYS_H()
         steps := 0

@@ -126,6 +126,23 @@ func main() {
     check("pressure >= base", p_ext >= P_BASE())
     check("pressure rises with extension", p_ext > p_tuck)
 
+    // --- continuity-preserving IK: round-trip + fewer elbow flips ---
+    c1, c2, c3, c4, cok := ik_pick_continuous(Vec3{2.0, 0.10, 0.50}, 0.0)
+    cp := fk_tip(c1, c2, c3, c4)
+    check("continuous pick ok", cok)
+    check("continuous tip-on-target", vapprox(cp, Vec3{2.0, 0.10, 0.50}, 0.0001))
+    check("continuous tool-down", approx(cos(deg2rad(c2 + c3 + c4)), 0.0 - 1.0, 0.0001))
+
+    // at a target reachable by BOTH elbow branches, continuity follows whichever
+    // branch the arm is already on (prev_j3) instead of snapping to a fixed one
+    bf := Vec3{0.0 - 2.6, 0.30, 0.0 - 0.44}
+    u1, u2, u3, u4, uok := ik_pick_continuous(bf, 0.0 - 90.0)   // arm on elbow-up
+    d1, d2, d3, d4, dok := ik_pick_continuous(bf, 90.0)         // arm on elbow-down
+    check("continuity keeps elbow-up branch", sgnf(u3) < 0.0)
+    check("continuity keeps elbow-down branch", sgnf(d3) > 0.0)
+    check("both branches reach the same target",
+          vapprox(fk_tip(u1, u2, u3, u4), fk_tip(d1, d2, d3, d4), 0.0001))
+
     // --- layout: slots & bin positions ---
     check("dough count = slot count", N_DOUGH() == N_SLOTS())
     s0 := slot_pos(0)
