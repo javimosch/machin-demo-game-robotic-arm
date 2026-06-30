@@ -16,11 +16,26 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
 
 - `./build.sh` → `./robotic-arm`. Vendors raylib 5.0 static; system raylib
   preferred if present.
+- `./tests/run_tests.sh` → headless unit tests for the pure core. It concatenates
+  ONLY `src/00_math.src src/01_armspec.src src/02_kinematics.src` + the test, then
+  `machin encode | machin run`. These files contain **no extern block**, which is
+  why they run without linking raylib — keep the simulation core extern-free.
 - Verify rendering: run backgrounded with `DISPLAY=:0`, `sleep ~2.5`, then
   `DISPLAY=:0 import -window root /tmp/shot.png`, read the PNG, `kill`.
 - The arm runs **autonomously** (no keystroke injection available here), so a
-  screenshot of a running build is the gameplay check. Factor IK/actuator math
-  into pure functions and unit-test headless with `machin run` first.
+  screenshot of a running build is the gameplay check; the headless tests cover
+  the math.
+
+## Architecture split (important)
+
+- **Pure core** (`00_math`, `01_armspec`, `02_kinematics`): no extern, plain
+  `Vec3` value type, headless-testable. One source of truth for geometry.
+- **Render layer** (`03_ffi`, `04_arm`, `05_scene`, `06_main`): the only extern
+  block; converts `Vec3` → raylib `Vector3` via `vec2r()`/`v3()`.
+- IK: `ik_pick(target) -> j1,j2,j3,j4,ok` auto-selects the elbow branch and
+  wraps the wrist angle to keep the gripper pointing down. `ik_wrist_auto(w)`
+  for a bare wrist target. Actuators: `joint_step(Joint, target, dt, vmax, amax,
+  gain)` returns the advanced `Joint` (value semantics).
 
 ## Conventions specific to this repo
 
@@ -40,4 +55,5 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
 ## Step status
 
 - **Step 1 ✅** static workcell + FK rest pose + orbit camera. Builds & renders.
-- Steps 2–5: see README roadmap.
+- **Step 2 ✅** pure IK + actuator core; 31 headless tests pass. GUI unchanged.
+- Steps 3–5: see README roadmap.

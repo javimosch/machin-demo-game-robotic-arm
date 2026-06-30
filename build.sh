@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Build machin-demo-game-robotic-arm.
-# Source order (each file is a self-contained slice of the program):
-#   src/01_ffi.src     — raylib + rlgl FFI, color/vec helpers, constants
-#   src/02_math3d.src  — Vec3 module over raylib's Vector3
-#   src/03_arm.src     — 4-DOF arm geometry + forward-kinematics rendering
-#   src/04_scene.src   — table, dough bin, baking tray, floor
-#   src/05_main.src    — orbit camera + main loop (step 1: static scene)
+# Source order. The first three files are the PURE simulation core (no extern);
+# they are also what tests/run_tests.sh compiles & runs headless.
+#   src/00_math.src       — scalars + plain Vec3 value type
+#   src/01_armspec.src    — arm geometry, limits, rest pose, actuator params
+#   src/02_kinematics.src — forward + inverse kinematics, damped actuators
+#   src/03_ffi.src        — raylib + rlgl FFI, Vector3/Color helpers, palette
+#   src/04_arm.src        — 4-DOF arm forward-kinematics rendering
+#   src/05_scene.src      — table, dough bin, baking tray, floor
+#   src/06_main.src       — orbit camera + main loop
 # Vendors raylib 5.0 if no system raylib is found. machin v0.48.0+.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,7 +16,7 @@ MACHIN="${MACHIN:-machin}"
 BIN=robotic-arm
 COMBINED=app.mfl
 
-SRCS="src/01_ffi.src src/02_math3d.src src/03_arm.src src/04_scene.src src/05_main.src"
+SRCS="src/00_math.src src/01_armspec.src src/02_kinematics.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
 
 have_system_raylib() {
     pkg-config --exists raylib 2>/dev/null && return 0

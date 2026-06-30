@@ -1,0 +1,126 @@
+// machin-demo-game-robotic-arm — 02_kinematics.src
+// The simulation core: forward kinematics, analytic inverse kinematics, and the
+// damped actuator model. Pure MFL (no extern) — unit-tested headless.
+//
+// Angle convention (matches the renderer in 04_arm.src):
+//   links extend along local +Y; pitch joints rotate around local +Z; the base
+//   yaws around +Y. So a link at cumulative pitch A points along
+//   (-sin A, cos A) in the (localX, Y) plane, and the base yaw maps localX to
+//   world direction (cos j1, 0, -sin j1).
+
+// ── forward kinematics ────────────────────────────────────────────────────
+
+// wrist-joint (end of forearm) world position for the given joint angles (deg)
+func fk_wrist(j1, j2, j3) (p) {
+    a2 := deg2rad(j2)
+    a23 := deg2rad(j2 + j3)
+    u := 0.0 - L2() * sin(a2) - L3() * sin(a23)
+    v := SHOULDER_Y() + L2() * cos(a2) + L3() * cos(a23)
+    phi := deg2rad(j1)
+    p = Vec3{BASE_X() + u * cos(phi), v, BASE_Z() - u * sin(phi)}
+}
+
+// gripper-tip world position (includes the wrist stub + tool length)
+func fk_tip(j1, j2, j3, j4) (p) {
+    a2 := deg2rad(j2)
+    a23 := deg2rad(j2 + j3)
+    a234 := deg2rad(j2 + j3 + j4)
+    u := 0.0 - L2() * sin(a2) - L3() * sin(a23) - TOOL_LEN() * sin(a234)
+    v := SHOULDER_Y() + L2() * cos(a2) + L3() * cos(a23) + TOOL_LEN() * cos(a234)
+    phi := deg2rad(j1)
+    p = Vec3{BASE_X() + u * cos(phi), v, BASE_Z() - u * sin(phi)}
+}
+
+// ── inverse kinematics ────────────────────────────────────────────────────
+
+// Place the WRIST JOINT at world point W. Returns base yaw + shoulder + elbow
+// (degrees) and ok=false if the target was out of reach (the arm then points
+// toward it at full/closest extension) or a joint limit had to clamp.
+// elbow = +1.0 or -1.0 selects the elbow-up / elbow-down branch.
+func ik_wrist(w, elbow) (j1, j2, j3, ok) {
+    ok = true
+    r := sqrt(w.x * w.x + w.z * w.z)
+    phi := atan2(0.0 - w.z, w.x)
+    j1 = rad2deg(phi)
+    h := w.y - SHOULDER_Y()
+    d := sqrt(r * r + h * h)
+
+    dlo := MIN_REACH() + 0.0001
+    dhi := MAX_REACH() - 0.0001
+    dc := clampf(d, dlo, dhi)
+    if absf(dc - d) > 0.000001 { ok = false }
+
+    cq2 := (dc * dc - L2() * L2() - L3() * L3()) / (2.0 * L2() * L3())
+    cq2 = clampf(cq2, 0.0 - 1.0, 1.0)
+    q2 := acos(cq2) * elbow
+    q1 := atan2(h, r) - atan2(L3() * sin(q2), L2() + L3() * cos(q2))
+
+    j2 = rad2deg(q1) - 90.0
+    j3 = rad2deg(q2)
+
+    // clamp into mechanical limits; flag if we had to
+    j1c := clampf(j1, J1_MIN(), J1_MAX())
+    j2c := clampf(j2, J2_MIN(), J2_MAX())
+    j3c := clampf(j3, J3_MIN(), J3_MAX())
+    if absf(j1c - j1) + absf(j2c - j2) + absf(j3c - j3) > 0.000001 { ok = false }
+    j1 = j1c
+    j2 = j2c
+    j3 = j3c
+}
+
+// Auto-select the elbow branch: prefer elbow-up (-1), fall back to elbow-down
+// (+1); a single fixed sign is not feasible for every reachable target.
+func ik_wrist_auto(w) (j1, j2, j3, ok) {
+    a1, a2, a3, aok := ik_wrist(w, 0.0 - 1.0)
+    if aok {
+        j1 = a1  j2 = a2  j3 = a3  ok = true
+    } else {
+        b1, b2, b3, bok := ik_wrist(w, 1.0)
+        if bok {
+            j1 = b1  j2 = b2  j3 = b3  ok = true
+        } else {
+            // neither branch feasible: return the elbow-up attempt, flag it
+            j1 = a1  j2 = a2  j3 = a3  ok = false
+        }
+    }
+}
+
+// Full solve for a straight-down pick at gripper-tip target T: positions the
+// wrist TOOL_LEN above T, then sets the wrist so the tool points world-down.
+// The wrist angle is wrapped into [-180,180] before the limit check (pointing
+// down is periodic — 235 deg and -125 deg are the same direction).
+func ik_pick(t) (j1, j2, j3, j4, ok) {
+    w := Vec3{t.x, t.y + TOOL_LEN(), t.z}
+    j1, j2, j3, ok = ik_wrist_auto(w)
+    j4raw := wrap180(180.0 - (j2 + j3))
+    j4c := clampf(j4raw, J4_MIN(), J4_MAX())
+    if absf(j4c - j4raw) > 0.000001 { ok = false }
+    j4 = j4c
+}
+
+// ── actuator (damped velocity servo, accel- & velocity-limited) ───────────
+// A joint stores its current angle (deg) and angular velocity (deg/s).
+type Joint struct { angle float  vel float }
+
+func mk_joint(angle) (j) { j = Joint{angle, 0.0} }
+
+// Advance one joint one timestep toward `target` (deg). Eases in (desired
+// velocity shrinks with the error), never exceeds vmax, accel capped at amax.
+func joint_step(jt, target, dt, vmax, amax, gain) (out) {
+    err := target - jt.angle
+    desv := clampf(gain * err, 0.0 - vmax, vmax)
+    dv := desv - jt.vel
+    maxdv := amax * dt
+    dv = clampf(dv, 0.0 - maxdv, maxdv)
+    nv := jt.vel + dv
+    na := jt.angle + nv * dt
+    out = Joint{na, nv}
+}
+
+// settled when close to target and nearly stopped
+func joint_settled(jt, target) (b) {
+    b = false
+    if absf(target - jt.angle) < 0.25 {
+        if absf(jt.vel) < 1.0 { b = true }
+    }
+}

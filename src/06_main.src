@@ -1,13 +1,14 @@
-// machin-demo-game-robotic-arm — 05_main.src
-// Step 1 entry point: a slowly-orbiting camera over the static workcell with
-// the arm posed at rest. No simulation yet — this validates the FFI, the FK
-// rig, the scene, and the build pipeline.
+// machin-demo-game-robotic-arm — 06_main.src
+// Entry point. Step 2 still renders the static workcell with the arm at rest
+// (the IK + actuator core landed this step and is verified headless via
+// tests/run_tests.sh; step 3 wires it into this loop).
 
 var cam_angle = 0.0
 
 func draw_hud() {
-    DrawText("MACHIN ROBOTIC ARM  —  step 1: static workcell (FK rest pose)", 16, 14, 20, C_WHITE())
-    DrawText("4-DOF articulated arm   |   dough bin -> baking tray   |   orbiting camera",
+    DrawText("MACHIN ROBOTIC ARM  —  step 2: IK + actuator core (headless-tested)",
+             16, 14, 20, C_WHITE())
+    DrawText("4-DOF analytic IK + damped actuators verified | render integration: step 3",
              16, 42, 16, C_DIM())
     line := "rest pose (deg)   J1 " + str(REST_J1()) + "   J2 " + str(REST_J2())
     line = line + "   J3 " + str(REST_J3()) + "   J4 " + str(REST_J4())

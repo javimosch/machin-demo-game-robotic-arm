@@ -20,16 +20,27 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
 
 ## Status
 
-**Step 1 — static workcell.** ✅ Table, dough bin, baking tray, and the 4-DOF
-arm posed at rest (forward kinematics only), under a slowly orbiting camera.
-This validates the FFI, the FK rig, the scene, and the build pipeline.
+- **Step 1 — static workcell.** ✅ Table, dough bin, baking tray, and the 4-DOF
+  arm posed at rest (forward kinematics only), under a slowly orbiting camera.
+  Validates the FFI, the FK rig, the scene, and the build pipeline.
+- **Step 2 — IK + actuator core.** ✅ Pure-MFL forward + analytic inverse
+  kinematics (base yaw + 2-link law of cosines, auto elbow-branch selection,
+  joint limits, out-of-reach handling) and a damped, velocity/accel-limited
+  actuator model. **31 headless unit tests pass** (`./tests/run_tests.sh`) —
+  FK/IK round-trips, azimuth, reach limits, actuator convergence. The GUI still
+  renders the static rest pose; step 3 wires the core into the loop.
 
 Roadmap (additive, each step verified before the next):
 
-2. Pure-MFL IK + actuator module with headless `machin run` unit tests.
 3. Wire IK → damped actuators → the rendered arm; track a moving target.
 4. Hydraulic cylinders (flow-limited) + pressure HUD.
 5. Pick-and-place state machine + grasp/attach + payload gravity → autonomous loop.
+
+## Test
+
+```sh
+./tests/run_tests.sh   # encodes + runs the pure simulation core, headless (no raylib)
+```
 
 ## Build & run
 
@@ -46,12 +57,18 @@ Esc quits.
 
 ## Source layout
 
+The first three files are the **pure simulation core** (no extern block) — they
+are also exactly what the headless tests compile and run.
+
 | file | what |
 |---|---|
-| `src/01_ffi.src` | raylib + rlgl FFI, color/vec helpers, window + palette constants |
-| `src/02_math3d.src` | Vec3 module over raylib's `Vector3` |
-| `src/03_arm.src` | 4-DOF arm geometry + forward-kinematics rendering |
-| `src/04_scene.src` | table, dough bin, baking tray, floor |
-| `src/05_main.src` | orbit camera + main loop |
+| `src/00_math.src` | scalar helpers + a plain `Vec3` value type |
+| `src/01_armspec.src` | arm geometry, joint limits, rest pose, actuator params |
+| `src/02_kinematics.src` | forward + inverse kinematics, damped actuators |
+| `src/03_ffi.src` | raylib + rlgl FFI, `Vector3`/`Color` helpers, window + palette |
+| `src/04_arm.src` | 4-DOF arm forward-kinematics rendering |
+| `src/05_scene.src` | table, dough bin, baking tray, floor |
+| `src/06_main.src` | orbit camera + main loop |
+| `tests/test_kinematics.src` | headless unit tests for the core |
 
 Built with machin v0.80.0.

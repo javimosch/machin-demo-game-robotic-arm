@@ -1,8 +1,8 @@
-// machin-demo-game-robotic-arm — 01_ffi.src
-// raylib + rlgl FFI boundary, color/vec helpers, scalar helpers, world constants.
-//
-// Step 1: a static 3D scene — table, dough bin, baking tray, and a 4-DOF
-// articulated arm posed at rest (forward kinematics only). Orbit camera.
+// machin-demo-game-robotic-arm — 03_ffi.src
+// The raylib + rlgl FFI boundary: the only extern block in the program.
+// Holds the C structs, raylib/rlgl functions, the Vector3/Color helpers,
+// window constants, and the palette. Scalar + Vec3 math lives in 00_math.src
+// (no extern) so the simulation core stays headless-testable.
 
 // ── raylib FFI ──────────────────────────────────────────────────────────
 extern "raylib" {
@@ -41,20 +41,13 @@ extern "rlgl" {
     fn rlScalef(f32, f32, f32)
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────
-func v3(x, y, z) (v)        { v = Vector3{x, y, z} }
-func v3z() (v)              { v = Vector3{0.0, 0.0, 0.0} }
-func col(r, g, b) (c)       { c = Color{r, g, b, 255} }
-func col_a(r, g, b, a) (c)  { c = Color{r, g, b, a} }
-func clampf(v, lo, hi) (o)  { o = v  if o < lo { o = lo }  if o > hi { o = hi } }
-func absf(v) (o)            { o = v  if v < 0.0 { o = 0.0 - v } }
-func lerpf(a, b, t) (v)     { v = a + (b - a) * t }
-func minf(a, b) (o)         { o = a  if b < a { o = b } }
-func maxf(a, b) (o)         { o = a  if b > a { o = b } }
-
-// degrees <-> radians (native math builtins take radians)
-func deg2rad(d) (r) { r = d * pi() / 180.0 }
-func rad2deg(r) (d) { d = r * 180.0 / pi() }
+// ── FFI helpers (need the raylib cstructs) ───────────────────────────────
+// Bridge a plain Vec3 (00_math) to raylib's Vector3 cstruct at the boundary.
+func v3(x, y, z) (v)       { v = Vector3{x, y, z} }
+func v3z() (v)             { v = Vector3{0.0, 0.0, 0.0} }
+func vec2r(a) (v)          { v = Vector3{a.x, a.y, a.z} }
+func col(r, g, b) (c)      { c = Color{r, g, b, 255} }
+func col_a(r, g, b, a) (c) { c = Color{r, g, b, a} }
 
 // ── window ──────────────────────────────────────────────────────────────
 func WIN_W() (n) { n = 1100 }

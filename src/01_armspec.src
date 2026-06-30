@@ -1,0 +1,55 @@
+// machin-demo-game-robotic-arm — 01_armspec.src
+// The arm's physical specification: link lengths, joint limits, tool length,
+// rest pose, and per-joint actuator parameters. Pure data (no extern) so the
+// kinematics core and its headless tests can use it. The render layer reads the
+// same constants, so the drawn arm and the simulated arm never disagree.
+
+// ── geometry (world units) ────────────────────────────────────────────────
+func BASE_X() (v)   { v = 0.0 }
+func BASE_Z() (v)   { v = 0.0 }
+func PLINTH_H() (v) { v = 0.40 }   // bolted-down pedestal
+func COL_H() (v)    { v = 1.10 }   // rotating column up to the shoulder
+func L2() (v)       { v = 1.50 }   // upper arm
+func L3() (v)       { v = 1.30 }   // forearm
+func WR() (v)       { v = 0.35 }   // wrist stub
+func AW() (v)       { v = 0.40 }   // upper-arm width (render only)
+func AW2() (v)      { v = 0.34 }   // forearm width (render only)
+
+// shoulder world height (top of plinth + column)
+func SHOULDER_Y() (v) { v = PLINTH_H() + COL_H() }
+
+// distance from the wrist joint to the gripper TIP, along the tool axis.
+// IK places the wrist this far above a straight-down pick target.
+func TOOL_LEN() (v) { v = WR() + 0.50 }
+
+// total planar reach of the 2-link arm
+func MAX_REACH() (v) { v = L2() + L3() }
+func MIN_REACH() (v) { v = absf(L2() - L3()) }
+
+// ── joint limits (degrees) ────────────────────────────────────────────────
+// Generous but bounded; the IK clamps into these and reports if it had to.
+func J1_MIN() (v) { v = 0.0 - 175.0 }
+func J1_MAX() (v) { v = 175.0 }
+func J2_MIN() (v) { v = 0.0 - 150.0 }
+func J2_MAX() (v) { v = 150.0 }
+func J3_MIN() (v) { v = 0.0 - 160.0 }
+func J3_MAX() (v) { v = 160.0 }
+func J4_MIN() (v) { v = 0.0 - 170.0 }
+func J4_MAX() (v) { v = 170.0 }
+
+// ── rest pose (degrees) ─────────────────────────────────────────────────
+func REST_J1() (v)   { v = 25.0 }
+func REST_J2() (v)   { v = 0.0 - 55.0 }
+func REST_J3() (v)   { v = 75.0 }
+func REST_J4() (v)   { v = 0.0 - 35.0 }
+func REST_GRIP() (v) { v = 0.6 }
+
+// ── actuator parameters (per joint) ───────────────────────────────────────
+// max angular velocity (deg/s), max angular acceleration (deg/s^2), and the
+// velocity-servo gain K (1/s) that eases the joint into its target.
+func ACT_VMAX(j) (v) {
+    v = 120.0
+    if j == 0 { v = 90.0 }    // base yaw is heavier, a touch slower
+}
+func ACT_AMAX(j) (v) { v = 360.0 }
+func ACT_GAIN(j) (v) { v = 6.0 }

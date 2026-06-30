@@ -1,4 +1,4 @@
-// machin-demo-game-robotic-arm — 04_scene.src
+// machin-demo-game-robotic-arm — 05_scene.src
 // The static workcell: floor grid, table, dough bin (with dough balls),
 // and the baking tray with its slot grid. Table top surface is the y=0 plane;
 // the arm pedestal, bin, and tray all sit on it.
@@ -51,6 +51,13 @@ func draw_table() {
 }
 
 // ── dough bin ──────────────────────────────────────────────────────────────
+func draw_dough(x, z) {
+    rlPushMatrix()
+    rlTranslatef(x, DOUGH_R(), z)
+    DrawSphere(v3z(), DOUGH_R(), C_DOUGH())
+    rlPopMatrix()
+}
+
 func draw_bin() {
     bx := BIN_X()
     bz := BIN_Z()
@@ -70,21 +77,34 @@ func draw_bin() {
     rlPushMatrix() rlTranslatef(bx - w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
     rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
     // dough balls resting inside (a loose 2x2 cluster)
-    r := DOUGH_R()
     draw_dough(bx - 0.32, bz - 0.30)
     draw_dough(bx + 0.30, bz - 0.28)
     draw_dough(bx - 0.28, bz + 0.32)
     draw_dough(bx + 0.34, bz + 0.30)
 }
 
-func draw_dough(x, z) {
-    rlPushMatrix()
-    rlTranslatef(x, DOUGH_R(), z)
-    DrawSphere(v3z(), DOUGH_R(), C_DOUGH())
-    rlPopMatrix()
+// ── baking tray ─────────────────────────────────────────────────────────────
+func draw_slot_grid(tx, tz) {
+    cols := 2
+    rows := 3
+    sx := 0.55
+    sz := 0.72
+    ci := 0
+    while ci < cols {
+        ri := 0
+        while ri < rows {
+            ox := (float(ci) - 0.5) * sx
+            oz := (float(ri) - 1.0) * sz
+            rlPushMatrix()
+            rlTranslatef(tx + ox, 0.065, tz + oz)
+            DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
+            rlPopMatrix()
+            ri = ri + 1
+        }
+        ci = ci + 1
+    }
 }
 
-// ── baking tray ─────────────────────────────────────────────────────────────
 func draw_tray() {
     tx := TRAY_X()
     tz := TRAY_Z()
@@ -105,25 +125,4 @@ func draw_tray() {
     rlPushMatrix() rlTranslatef(tx + w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
     // 2x3 slot markers (where dough will be placed)
     draw_slot_grid(tx, tz)
-}
-
-func draw_slot_grid(tx, tz) {
-    cols := 2
-    rows := 3
-    sx := 0.55
-    sz := 0.72
-    ci := 0
-    while ci < cols {
-        ri := 0
-        while ri < rows {
-            ox := (float(ci) - 0.5) * sx
-            oz := (float(ri) - 1.0) * sz
-            rlPushMatrix()
-            rlTranslatef(tx + ox, 0.065, tz + oz)
-            DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
-            rlPopMatrix()
-            ri = ri + 1
-        }
-        ci = ci + 1
-    }
 }

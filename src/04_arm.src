@@ -1,36 +1,10 @@
-// machin-demo-game-robotic-arm — 03_arm.src
-// The 4-DOF articulated arm: geometry + forward-kinematics rendering.
+// machin-demo-game-robotic-arm — 04_arm.src
+// Forward-kinematics RENDERING of the 4-DOF arm via the rlgl matrix stack.
+// Geometry constants come from 01_armspec.src, so the drawn arm and the
+// simulated arm (02_kinematics.src) share one source of truth.
 //
-// DOF (all angles in DEGREES for rlRotatef):
-//   j1  base yaw     — around local +Y
-//   j2  shoulder     — pitch around local +Z
-//   j3  elbow        — pitch around local +Z
-//   j4  wrist        — pitch around local +Z
-//   grip in [0,1]    — 0 = closed, 1 = open (not part of IK)
-//
-// Links extend along local +Y and are bent by the pitch joints; the whole
-// planar chain is swung by the base yaw. Step 1 draws a fixed rest pose.
-
-// ── geometry (world units) ────────────────────────────────────────────────
-func BASE_X() (v)   { v = 0.0 }
-func BASE_Z() (v)   { v = 0.0 }
-func PLINTH_H() (v) { v = 0.40 }   // bolted-down pedestal
-func COL_H() (v)    { v = 1.10 }   // rotating column up to the shoulder
-func L2() (v)       { v = 1.50 }   // upper arm
-func L3() (v)       { v = 1.30 }   // forearm
-func WR() (v)       { v = 0.35 }   // wrist stub
-func AW() (v)       { v = 0.40 }   // upper-arm width
-func AW2() (v)      { v = 0.34 }   // forearm width
-
-// shoulder world height (top of plinth + column) — used by IK & camera later
-func SHOULDER_Y() (v) { v = PLINTH_H() + COL_H() }
-
-// ── rest pose (degrees) ─────────────────────────────────────────────────
-func REST_J1() (v) { v = 25.0 }
-func REST_J2() (v) { v = 0.0 - 55.0 }
-func REST_J3() (v) { v = 75.0 }
-func REST_J4() (v) { v = 0.0 - 35.0 }
-func REST_GRIP() (v) { v = 0.6 }
+// Convention (matches the kinematics core): links extend along local +Y;
+// pitch joints (shoulder/elbow/wrist) rotate around local +Z; base yaws +Y.
 
 // ── primitive draws (in the current rlgl frame) ──────────────────────────
 func draw_joint(size) {
@@ -63,7 +37,7 @@ func draw_gripper(grip) {
     rlPopMatrix()
 }
 
-// ── forward kinematics: draw the whole arm at the given joint angles ──────
+// ── draw the whole arm at the given joint angles (degrees) ────────────────
 func draw_arm(j1, j2, j3, j4, grip) {
     rlPushMatrix()
     rlTranslatef(BASE_X(), 0.0, BASE_Z())

@@ -1,0 +1,112 @@
+// machin-demo-game-robotic-arm — tests/test_kinematics.src
+// Headless unit tests for the simulation core (00_math + 01_armspec +
+// 02_kinematics). Compiled WITHOUT any extern block, so it runs under
+// `machin run` with no raylib. See tests/run_tests.sh.
+
+var g_pass = 0
+var g_fail = 0
+
+func check(name, cond) {
+    if cond {
+        g_pass = g_pass + 1
+        println("  PASS  " + name)
+    } else {
+        g_fail = g_fail + 1
+        println("  FAIL  " + name)
+    }
+}
+
+func approx(a, b, eps) (r) { r = false  if absf(a - b) <= eps { r = true } }
+func vapprox(a, b, eps) (r) { r = false  if vdist(a, b) <= eps { r = true } }
+
+// ── IK wrist round-trip: fk_wrist(ik_wrist_auto(W)) == W ──────────────────
+func rt_wrist(name, wx, wy, wz) {
+    w := Vec3{wx, wy, wz}
+    j1, j2, j3, ok := ik_wrist_auto(w)
+    p := fk_wrist(j1, j2, j3)
+    check(name, ok)
+    check(name + " round-trip", vapprox(p, w, 0.0001))
+}
+
+// ── IK pick round-trip: fk_tip(ik_pick(T)) == T (gripper points down) ─────
+func rt_pick(name, tx, ty, tz) {
+    t := Vec3{tx, ty, tz}
+    j1, j2, j3, j4, ok := ik_pick(t)
+    p := fk_tip(j1, j2, j3, j4)
+    check(name, ok)
+    check(name + " tip-on-target", vapprox(p, t, 0.0001))
+    // tool points straight down  =>  cumulative pitch direction is world -Y
+    check(name + " tool-down", approx(cos(deg2rad(j2 + j3 + j4)), 0.0 - 1.0, 0.0001))
+}
+
+func main() {
+    println("=== kinematics tests ===")
+
+    // --- forward kinematics sanity ---
+    // arm straight up (all pitch 0): wrist directly above shoulder
+    pu := fk_wrist(0.0, 0.0, 0.0)
+    check("FK straight-up x≈0", approx(pu.x, 0.0, 0.0001))
+    check("FK straight-up z≈0", approx(pu.z, 0.0, 0.0001))
+    check("FK straight-up y=shoulder+L2+L3",
+          approx(pu.y, SHOULDER_Y() + L2() + L3(), 0.0001))
+
+    // --- base-yaw azimuth ---
+    // target on +X  -> j1 ≈ 0 ; target on world -Z -> j1 ≈ +90
+    ja, x2, x3, oka := ik_wrist(Vec3{1.8, 1.5, 0.0}, 1.0)
+    check("azimuth +X -> j1≈0", approx(ja, 0.0, 0.001))
+    jb, y2, y3, okb := ik_wrist(Vec3{0.0, 1.5, 0.0 - 1.8}, 1.0)
+    check("azimuth -Z -> j1≈90", approx(jb, 90.0, 0.001))
+
+    // --- IK wrist round-trips (both elbow branches) ---
+    rt_wrist("wrist A", 1.5, 1.5, 0.0)
+    rt_wrist("wrist B", 2.0, 0.8, 0.0)
+    rt_wrist("wrist C", 1.2, 0.6, 1.0)
+    rt_wrist("wrist D (-x,z)", 0.0 - 1.5, 1.0, 0.8)
+    rt_wrist("wrist E low", 1.0, 0.3, 0.0 - 0.6)
+
+    // --- full pick round-trips (gripper tip on table-height targets) ---
+    rt_pick("pick bin", 0.0 - 2.0, 0.24, 0.40)
+    rt_pick("pick tray", 2.0, 0.10, 0.50)
+    rt_pick("pick center", 1.5, 0.10, 0.0)
+
+    // --- out of reach: ok=false, arm extends to MAX_REACH toward target ---
+    far := Vec3{5.0, 0.95, 0.0}
+    fj1, fj2, fj3, fok := ik_wrist(far, 1.0)
+    fp := fk_wrist(fj1, fj2, fj3)
+    sh := Vec3{BASE_X(), SHOULDER_Y(), BASE_Z()}
+    check("out-of-reach flagged", fok == false)
+    check("out-of-reach extends to MAX_REACH",
+          approx(vdist(fp, sh), MAX_REACH(), 0.01))
+
+    // --- actuator: converge 0 -> 90 deg, respect vmax, settle ---
+    jt := mk_joint(0.0)
+    dt := 1.0 / 60.0
+    vmax := ACT_VMAX(1)
+    amax := ACT_AMAX(1)
+    gain := ACT_GAIN(1)
+    maxv := 0.0
+    i := 0
+    while i < 300 {
+        jt = joint_step(jt, 90.0, dt, vmax, amax, gain)
+        av := absf(jt.vel)
+        if av > maxv { maxv = av }
+        i = i + 1
+    }
+    check("actuator converges to target", approx(jt.angle, 90.0, 0.25))
+    check("actuator stops (vel≈0)", absf(jt.vel) < 1.0)
+    check("actuator honors vmax", maxv <= vmax + 0.001)
+    check("actuator reports settled", joint_settled(jt, 90.0))
+
+    // --- actuator: accel limit honored (first step can't exceed amax*dt) ---
+    j0 := mk_joint(0.0)
+    j1s := joint_step(j0, 90.0, dt, vmax, amax, gain)
+    check("actuator honors amax on step 1", absf(j1s.vel) <= amax * dt + 0.001)
+
+    println("=== summary ===")
+    println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
+    if g_fail == 0 {
+        println("ALL TESTS PASSED")
+    } else {
+        println("THERE WERE FAILURES")
+    }
+}
