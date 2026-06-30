@@ -7,7 +7,8 @@
 // state: 0 = resting in bin, 1 = grasped (glued to gripper), 2 = falling,
 //        3 = placed (resting on the tray)
 // squish: 1.0 = round, <1 = flattened by grip force; spoiled: 1 = crushed (ruined)
-type Dough struct { pos Vec3  vel Vec3  state int  slot int  squish float  spoiled int }
+// kind: 0 = ball, 1 = baguette; heading: yaw (deg) the loaf is oriented at
+type Dough struct { pos Vec3  vel Vec3  state int  slot int  squish float  spoiled int  kind int  heading float }
 
 // ── grip-force mechanics ──────────────────────────────────────────────────
 // The gripper opening g in [0,1] maps to a finger gap (see 04_arm draw_gripper).
@@ -46,43 +47,44 @@ func mk_dough_set() (ds) {
     ds = []Dough{}
     i := 0
     while i < N_DOUGH() {
-        ds = append(ds, Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0})
+        ds = append(ds, Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0, item_kind(i), 0.0})
         i = i + 1
     }
 }
 
-// reset every ball back to its bin source, unplaced & pristine
+// reset every item back to its bin source, unplaced & pristine
 func reset_dough(ds) (out) {
     out = ds
     i := 0
     while i < len(out) {
-        out[i] = Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0}
+        out[i] = Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1, 1.0, 0, item_kind(i), 0.0}
         i = i + 1
     }
 }
 
 func dough_grasp(d) (o) {
-    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 1, d.slot, d.squish, d.spoiled}
+    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 1, d.slot, d.squish, d.spoiled, d.kind, d.heading}
 }
 
-// release a held ball: it springs back to round unless it was crushed
+// release a held item: it springs back to round unless it was crushed
 func dough_release(d) (o) {
     sq := 1.0
     if d.spoiled == 1 { sq = 0.70 }
-    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 2, d.slot, sq, d.spoiled}
+    o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 2, d.slot, sq, d.spoiled, d.kind, d.heading}
 }
 
-// glue a grasped ball to the gripper tip, applying grip-force deformation
-func dough_hold(d, tip, grip) (o) {
+// glue a grasped item to the gripper tip: apply grip-force deformation and
+// orient it to the current wrist roll
+func dough_hold(d, tip, grip, roll) (o) {
     f := grip_force(grip, DOUGH_R())
     sq := squish_from_force(f)
     sp := d.spoiled
     if f > GRIP_SPOIL_F() { sp = 1 }
     if sp == 1 { sq = minf(sq, 0.70) }
-    o = Dough{tip, Vec3{0.0, 0.0, 0.0}, 1, d.slot, sq, sp}
+    o = Dough{tip, Vec3{0.0, 0.0, 0.0}, 1, d.slot, sq, sp, d.kind, roll}
 }
 
-// integrate one falling ball under gravity; rest on the tray surface
+// integrate one falling item under gravity; rest on the tray surface
 func dough_fall(d, dt) (out) {
     out = d
     if d.state == 2 {
@@ -90,9 +92,9 @@ func dough_fall(d, dt) (out) {
         ny := d.pos.y + nvy * dt
         rest := DOUGH_REST_TRAY()
         if ny <= rest {
-            out = Dough{Vec3{d.pos.x, rest, d.pos.z}, Vec3{0.0, 0.0, 0.0}, 3, d.slot, d.squish, d.spoiled}
+            out = Dough{Vec3{d.pos.x, rest, d.pos.z}, Vec3{0.0, 0.0, 0.0}, 3, d.slot, d.squish, d.spoiled, d.kind, d.heading}
         } else {
-            out = Dough{Vec3{d.pos.x, ny, d.pos.z}, Vec3{0.0, nvy, 0.0}, 2, d.slot, d.squish, d.spoiled}
+            out = Dough{Vec3{d.pos.x, ny, d.pos.z}, Vec3{0.0, nvy, 0.0}, 2, d.slot, d.squish, d.spoiled, d.kind, d.heading}
         }
     }
 }

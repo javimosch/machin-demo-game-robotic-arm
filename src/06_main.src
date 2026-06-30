@@ -42,6 +42,7 @@ var g_dgrip = 1.0      // desired gripper opening for the current phase
 var g_pick = Vec3{0.0, 0.0, 0.0}
 var g_place = Vec3{0.0, 0.0, 0.0}
 var g_cycles = 0       // completed full trays
+var g_roll_target = 0.0   // desired wrist roll (deg) for the current item
 
 func PHYS_H() (v) { v = 1.0 / 60.0 }
 func r1(x) (o) { o = round(x * 10.0) / 10.0 }
@@ -51,24 +52,26 @@ func init_joints() {
     g_joints = append(g_joints, mk_joint(REST_J2()))
     g_joints = append(g_joints, mk_joint(REST_J3()))
     g_joints = append(g_joints, mk_joint(REST_J4()))
+    g_joints = append(g_joints, mk_joint(REST_J5()))   // wrist roll
     g_jinit = 1
 }
 
-// max angular speed: base yaw uses its rotary actuator; pitch joints are
-// flow-limited by their cylinder at the current angle
+// max angular speed: base yaw (0) + wrist roll (4) are rotary actuators; the
+// three pitch joints (1,2,3) are flow-limited by their hydraulic cylinder
 func joint_vmax(i, angle) (v) {
-    v = ACT_VMAX(0)
-    if i > 0 { v = cyl_vmax(angle, cyl_spec(i)) }
+    v = ACT_VMAX(i)
+    if i > 0 { if i < 4 { v = cyl_vmax(angle, cyl_spec(i)) } }
 }
 
-func step_joints(j1t, j2t, j3t, j4t, h) {
+func step_joints(j1t, j2t, j3t, j4t, j5t, h) {
     tg := []float{}
     tg = append(tg, j1t)
     tg = append(tg, j2t)
     tg = append(tg, j3t)
     tg = append(tg, j4t)
+    tg = append(tg, j5t)
     i := 0
-    while i < 4 {
+    while i < 5 {
         vmax := joint_vmax(i, g_joints[i].angle)
         g_joints[i] = joint_step(g_joints[i], tg[i], h, vmax, ACT_AMAX(i), ACT_GAIN(i))
         i = i + 1
@@ -84,9 +87,10 @@ func enter_phase(p) {
 
     if p == P_START() {
         d0 := g_dough[g_cur]
-        g_dough[g_cur] = Dough{d0.pos, d0.vel, d0.state, g_slot, d0.squish, d0.spoiled}
+        g_dough[g_cur] = Dough{d0.pos, d0.vel, d0.state, g_slot, d0.squish, d0.spoiled, d0.kind, d0.heading}
         g_pick = g_dough[g_cur].pos
         g_place = slot_pos(g_slot)
+        g_roll_target = item_heading(d0.kind)   // pre-orient the wrist for this item
         enter_phase(P_OVER_PICK())
         return
     }
@@ -98,7 +102,7 @@ func enter_phase(p) {
     if p == P_DESC_PLACE() { g_target = vadd(g_place, rel) g_dgrip = hold_grip() }
     if p == P_RELEASE()    { g_target = vadd(g_place, rel) g_dgrip = 1.0 }
     if p == P_RETRACT()    { g_target = vadd(g_place, up)  g_dgrip = 1.0 }
-    if p == P_RESET()      { g_target = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0}  g_dgrip = 1.0 }
+    if p == P_RESET()      { g_target = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0}  g_dgrip = 1.0  g_roll_target = 0.0 }
 }
 
 func arrived(tip) (b) { b = vdist(tip, g_target) < ARRIVE_EPS() }
@@ -188,9 +192,9 @@ func count_spoiled() (n) {
 }
 
 func draw_hud() {
-    DrawText("MACHIN ROBOTIC ARM  —  step 6: grip-force control + dough deformation",
+    DrawText("MACHIN ROBOTIC ARM  —  step 7: 5-DOF wrist roll + baguettes",
              16, 14, 20, C_WHITE())
-    DrawText("hydraulic arm  |  analytic IK  |  grips to a SAFE FORCE so the dough isn't crushed",
+    DrawText("5-DOF arm  |  grip-force control  |  wrist roll orients baguettes into the tray",
              16, 42, 16, C_DIM())
 
     a1 := g_joints[0].angle
@@ -224,7 +228,7 @@ func draw_all_dough() {
         d := g_dough[i]
         placed := false
         if d.state == 3 { placed = true }
-        draw_dough(d.pos, placed, d.squish, d.spoiled)
+        draw_dough(d.pos, placed, d.squish, d.spoiled, d.kind, d.heading)
         i = i + 1
     }
 }
@@ -253,7 +257,7 @@ func main() {
         h := PHYS_H()
         steps := 0
         while g_acc >= h {
-            step_joints(j1t, j2t, j3t, j4t, h)
+            step_joints(j1t, j2t, j3t, j4t, g_roll_target, h)
             g_acc = g_acc - h
             steps = steps + 1
             if steps > 8 { g_acc = 0.0 }
@@ -263,10 +267,12 @@ func main() {
         a2 := g_joints[1].angle
         a3 := g_joints[2].angle
         a4 := g_joints[3].angle
+        a5 := g_joints[4].angle
         tip := fk_tip(a1, a2, a3, a4)
 
-        // keep a grasped ball glued to the gripper; settle any falling balls
-        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip, g_grip) }
+        // keep a grasped item glued to the gripper, oriented to the wrist roll;
+        // settle any falling items
+        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip, g_grip, a5) }
         i := 0
         while i < len(g_dough) {
             g_dough[i] = dough_fall(g_dough[i], dt)
@@ -292,7 +298,7 @@ func main() {
         draw_bin()
         draw_tray()
         draw_all_dough()
-        draw_arm(a1, a2, a3, a4, g_grip)
+        draw_arm(a1, a2, a3, a4, a5, g_grip)
         draw_hydraulics(a1, a2, a3, a4)
         EndMode3D()
 

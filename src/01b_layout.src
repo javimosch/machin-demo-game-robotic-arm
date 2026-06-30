@@ -13,6 +13,24 @@ func TRAY_Z() (v)  { v = 0.0 }
 
 func DOUGH_R() (v) { v = 0.24 }
 
+// product kinds: 0 = round ball (boule), 1 = baguette (elongated loaf)
+func KIND_BALL() (k) { k = 0 }
+func KIND_BAGUETTE() (k) { k = 1 }
+func BAG_LEN() (v) { v = 0.72 }   // total baguette length (radius = DOUGH_R)
+
+// kind of the k-th item in the run (alternating ball / baguette)
+func item_kind(k) (kind) {
+    kind = KIND_BALL()
+    if k % 2 == 1 { kind = KIND_BAGUETTE() }
+}
+
+// the heading (yaw, deg) a kind should rest at: balls don't care (0),
+// baguettes lie along Z (the row direction) so they fit the slot grid
+func item_heading(kind) (h) {
+    h = 0.0
+    if kind == KIND_BAGUETTE() { h = 90.0 }
+}
+
 // rest heights (sphere CENTER y)
 func TRAY_SURF() (v)       { v = 0.06 }                 // tray floor top
 func DOUGH_REST_BIN() (v)  { v = DOUGH_R() }            // on the table, in the bin

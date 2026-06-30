@@ -167,7 +167,7 @@ func main() {
     check("release -> state 2", rd.state == 2)
 
     // a released ball above the tray falls and settles in its slot
-    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0, 1.0, 0}
+    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0, 1.0, 0, 0, 0.0}
     miny := 999.0
     fi := 0
     while fi < 200 {
@@ -198,17 +198,26 @@ func main() {
     // squish: in range, monotonic, gentler force flattens less
     check("squish in [0.55,1]", squish_from_force(50.0) >= 0.55)
     check("more force -> more squish", squish_from_force(100.0) < squish_from_force(10.0))
-    // dough_hold: gentle grip flattens a bit, never spoils
-    held := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, gsafe)
+    // dough_hold: gentle grip flattens a bit, never spoils; orients to wrist roll
+    held := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, gsafe, 90.0)
     check("gentle hold: slightly squished", held.squish < 1.0)
     check("gentle hold: not spoiled", held.spoiled == 0)
     check("gentle hold: glued to tip", vapprox(held.pos, Vec3{1.0, 0.5, 0.0}, 0.0001))
+    check("hold orients item to wrist roll", approx(held.heading, 90.0, 0.0001))
     // dough_hold: clamping fully shut crushes it
-    crushed := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, 0.0)
+    crushed := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, 0.0, 0.0)
     check("crush grip spoils dough", crushed.spoiled == 1)
     // released crushed dough keeps a flattened set
     rel := dough_release(crushed)
     check("released crushed dough stays flat", rel.squish < 1.0)
+
+    // --- products: kinds alternate, baguettes get a heading ---
+    check("item 0 is a ball", item_kind(0) == KIND_BALL())
+    check("item 1 is a baguette", item_kind(1) == KIND_BAGUETTE())
+    check("ball heading is 0", approx(item_heading(KIND_BALL()), 0.0, 0.0001))
+    check("baguette lies along Z (heading 90)", approx(item_heading(KIND_BAGUETTE()), 90.0, 0.0001))
+    dset := mk_dough_set()
+    check("dough set carries kinds", dset[1].kind == KIND_BAGUETTE())
 
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))

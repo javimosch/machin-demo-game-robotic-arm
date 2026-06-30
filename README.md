@@ -50,9 +50,14 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   over-crushed — the arm grips to a safe force so it never does. HUD shows live
   grip force. **75 headless tests pass.**
 
+- **Step 7 — wrist roll (5th DOF) + baguettes.** ✅ A 5th joint (wrist roll about
+  the tool axis) lets the gripper orient its payload. Items now come in two kinds
+  — round boules and elongated **baguettes** — and the arm rolls the wrist to lay
+  each baguette lengthwise into its slot. Roll is a rotary actuator (base yaw is
+  too); the three pitch joints stay hydraulic. **81 headless tests pass.**
+
 Roadmap (Track 2 — bakery production line):
 
-7. Wrist roll (5th DOF) + baguettes (orient elongated items).
 8. Production stations: score → proof → oven → cool.
 9. Conveyor feed + KPI panel.
 

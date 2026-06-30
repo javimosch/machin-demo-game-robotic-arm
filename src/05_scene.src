@@ -65,8 +65,9 @@ func draw_bin() {
     rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
 }
 
-// a single dough ball: tinted by placed/spoiled state, flattened by grip squish
-func draw_dough(p, placed, squish, spoiled) {
+// a single dough item: round ball or baguette, oriented by heading, tinted by
+// placed/spoiled state, flattened by grip squish
+func draw_dough(p, placed, squish, spoiled, kind, heading) {
     c := C_DOUGH()
     if placed { c = col(214, 170, 110) }   // golden once set on the tray
     if spoiled == 1 { c = col(150, 70, 60) }   // crushed = ruined, dark
@@ -74,8 +75,15 @@ func draw_dough(p, placed, squish, spoiled) {
     sxz := 1.0 / sqrt(sy)                   // bulge sideways as it flattens
     rlPushMatrix()
     rlTranslatef(p.x, p.y, p.z)
+    rlRotatef(heading, 0.0, 1.0, 0.0)
     rlScalef(sxz, sy, sxz)
-    DrawSphere(v3z(), DOUGH_R(), c)
+    if kind == KIND_BAGUETTE() {
+        r := DOUGH_R()
+        h := BAG_LEN() / 2.0 - r            // capsule end-cap centers, along local X
+        DrawCapsule(v3(0.0 - h, 0.0, 0.0), v3(h, 0.0, 0.0), r, 12, 8, c)
+    } else {
+        DrawSphere(v3z(), DOUGH_R(), c)
+    }
     rlPopMatrix()
 }
 

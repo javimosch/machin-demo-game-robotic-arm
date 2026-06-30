@@ -22,6 +22,7 @@ extern "raylib" {
     fn DrawCube(Vector3, f32, f32, f32, Color)
     fn DrawCubeWires(Vector3, f32, f32, f32, Color)
     fn DrawSphere(Vector3, f32, Color)
+    fn DrawCapsule(Vector3, Vector3, f32, i32, i32, Color)
     fn DrawCylinderEx(Vector3, Vector3, f32, f32, i32, Color)
     fn DrawGrid(i32, f32)
     fn DrawText(string, i32, i32, i32, Color)

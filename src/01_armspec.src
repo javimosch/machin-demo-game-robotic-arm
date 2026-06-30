@@ -41,12 +41,16 @@ func J3_MIN() (v) { v = 0.0 - 160.0 }
 func J3_MAX() (v) { v = 160.0 }
 func J4_MIN() (v) { v = 0.0 - 170.0 }
 func J4_MAX() (v) { v = 170.0 }
+// J5 = wrist ROLL about the tool axis (orients the gripper/payload, free DOF)
+func J5_MIN() (v) { v = 0.0 - 180.0 }
+func J5_MAX() (v) { v = 180.0 }
 
 // ── rest pose (degrees) ─────────────────────────────────────────────────
 func REST_J1() (v)   { v = 25.0 }
 func REST_J2() (v)   { v = 0.0 - 55.0 }
 func REST_J3() (v)   { v = 75.0 }
 func REST_J4() (v)   { v = 0.0 - 35.0 }
+func REST_J5() (v)   { v = 0.0 }
 func REST_GRIP() (v) { v = 0.6 }
 
 // ── actuator parameters (per joint) ───────────────────────────────────────

@@ -38,7 +38,7 @@ func draw_gripper(grip) {
 }
 
 // ── draw the whole arm at the given joint angles (degrees) ────────────────
-func draw_arm(j1, j2, j3, j4, grip) {
+func draw_arm(j1, j2, j3, j4, j5, grip) {
     rlPushMatrix()
     rlTranslatef(BASE_X(), 0.0, BASE_Z())
 
@@ -76,8 +76,9 @@ func draw_arm(j1, j2, j3, j4, grip) {
     rlRotatef(j4, 0.0, 0.0, 1.0)
     draw_link(WR(), 0.30, C_ARM_DK())
 
-    // gripper
+    // gripper — wrist ROLL about the tool axis (local +Y) orients the payload
     rlTranslatef(0.0, WR(), 0.0)
+    rlRotatef(j5, 0.0, 1.0, 0.0)
     draw_gripper(grip)
 
     rlPopMatrix()
