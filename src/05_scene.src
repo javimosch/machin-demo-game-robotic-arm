@@ -3,18 +3,12 @@
 // and the baking tray with its slot grid. Table top surface is the y=0 plane;
 // the arm pedestal, bin, and tray all sit on it.
 
+// Workcell PLACEMENT (bin/tray/dough sizing + rest heights) lives in
+// 01b_layout.src — shared with the task logic. These are render-only extents.
 func FLOOR_Y() (v)   { v = 0.0 - 1.8 }
 func TABLE_W() (v)   { v = 6.0 }    // x extent
 func TABLE_D() (v)   { v = 4.0 }    // z extent
 func TABLE_TH() (v)  { v = 0.20 }
-
-// bin & tray placement (centers, on the table top)
-func BIN_X() (v)   { v = 0.0 - 2.0 }
-func BIN_Z() (v)   { v = 0.40 }
-func TRAY_X() (v)  { v = 2.0 }
-func TRAY_Z() (v)  { v = 0.0 }
-
-func DOUGH_R() (v) { v = 0.24 }
 
 // ── floor ─────────────────────────────────────────────────────────────────
 func draw_floor() {
@@ -50,14 +44,7 @@ func draw_table() {
     draw_leg(ix, iz)
 }
 
-// ── dough bin ──────────────────────────────────────────────────────────────
-func draw_dough(x, z) {
-    rlPushMatrix()
-    rlTranslatef(x, DOUGH_R(), z)
-    DrawSphere(v3z(), DOUGH_R(), C_DOUGH())
-    rlPopMatrix()
-}
-
+// ── dough bin (container only — the dough balls are drawn from the live set) ─
 func draw_bin() {
     bx := BIN_X()
     bz := BIN_Z()
@@ -76,32 +63,28 @@ func draw_bin() {
     rlPushMatrix() rlTranslatef(bx, cy, bz + d / 2.0) DrawCube(v3z(), w, wall, th, C_BIN()) rlPopMatrix()
     rlPushMatrix() rlTranslatef(bx - w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
     rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
-    // dough balls resting inside (a loose 2x2 cluster)
-    draw_dough(bx - 0.32, bz - 0.30)
-    draw_dough(bx + 0.30, bz - 0.28)
-    draw_dough(bx - 0.28, bz + 0.32)
-    draw_dough(bx + 0.34, bz + 0.30)
+}
+
+// a single dough ball at a world position, tinted by whether it's been baked-in
+func draw_dough(p, placed) {
+    c := C_DOUGH()
+    if placed { c = col(214, 170, 110) }   // golden once set on the tray
+    rlPushMatrix()
+    rlTranslatef(p.x, p.y, p.z)
+    DrawSphere(v3z(), DOUGH_R(), c)
+    rlPopMatrix()
 }
 
 // ── baking tray ─────────────────────────────────────────────────────────────
-func draw_slot_grid(tx, tz) {
-    cols := 2
-    rows := 3
-    sx := 0.55
-    sz := 0.72
-    ci := 0
-    while ci < cols {
-        ri := 0
-        while ri < rows {
-            ox := (float(ci) - 0.5) * sx
-            oz := (float(ri) - 1.0) * sz
-            rlPushMatrix()
-            rlTranslatef(tx + ox, 0.065, tz + oz)
-            DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
-            rlPopMatrix()
-            ri = ri + 1
-        }
-        ci = ci + 1
+func draw_slot_grid() {
+    k := 0
+    while k < N_SLOTS() {
+        x, z := slot_xz(k)
+        rlPushMatrix()
+        rlTranslatef(x, 0.065, z)
+        DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
+        rlPopMatrix()
+        k = k + 1
     }
 }
 
@@ -124,5 +107,5 @@ func draw_tray() {
     rlPushMatrix() rlTranslatef(tx - w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
     rlPushMatrix() rlTranslatef(tx + w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
     // 2x3 slot markers (where dough will be placed)
-    draw_slot_grid(tx, tz)
+    draw_slot_grid()
 }

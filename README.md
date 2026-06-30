@@ -37,11 +37,13 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   cylinder length (drawn in world space as barrel + sliding rod), the valve's max
   **flow caps each joint's angular speed** through the local linkage ratio, and a
   **pressure proxy** (gravity load ÷ moment arm) shows on the HUD and tints each
-  barrel toward red under load. **41 headless tests pass.**
-
-Roadmap (additive, each step verified before the next):
-
-5. Pick-and-place state machine + grasp/attach + payload gravity → autonomous loop.
+  barrel toward red under load.
+- **Step 5 — autonomous bakery loop.** ✅ **v1 MVP complete.** A pick-and-place
+  state machine (`over-bin → descend → grasp → lift → over-tray → descend →
+  release → retract`) lifts dough balls from the bin and sets them, one per slot,
+  on the baking tray — the grasped ball is glued to the gripper, the released
+  ball **falls under gravity** and settles golden in its slot, then the loop
+  refills and repeats. Fully autonomous. **56 headless tests pass.**
 
 ## Test
 
@@ -64,19 +66,21 @@ Esc quits.
 
 ## Source layout
 
-The first three files are the **pure simulation core** (no extern block) — they
-are also exactly what the headless tests compile and run.
+The files up to and including `02c` are the **pure simulation core** (no extern
+block) — they are also exactly what the headless tests compile and run.
 
 | file | what |
 |---|---|
 | `src/00_math.src` | scalar helpers + a plain `Vec3` value type |
 | `src/01_armspec.src` | arm geometry, joint limits, rest pose, actuator params |
+| `src/01b_layout.src` | workcell layout: bin/tray/dough positions (shared) |
 | `src/02_kinematics.src` | forward + inverse kinematics, damped actuators |
 | `src/02b_hydraulics.src` | flow-limited cylinder linkage + pressure proxy |
+| `src/02c_task.src` | dough objects, grasp/release, payload gravity |
 | `src/03_ffi.src` | raylib + rlgl FFI, `Vector3`/`Color` helpers, window + palette |
-| `src/04_arm.src` | 4-DOF arm forward-kinematics rendering |
+| `src/04_arm.src` | 4-DOF arm FK rendering + hydraulic cylinders |
 | `src/05_scene.src` | table, dough bin, baking tray, floor |
-| `src/06_main.src` | orbit camera + main loop |
-| `tests/test_kinematics.src` | headless unit tests for the core |
+| `src/06_main.src` | pick-and-place state machine + main loop |
+| `tests/test_kinematics.src` | headless unit tests for the whole core |
 
 Built with machin v0.80.0.

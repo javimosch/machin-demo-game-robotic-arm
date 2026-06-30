@@ -1,0 +1,49 @@
+// machin-demo-game-robotic-arm — 02c_task.src
+// Dough objects + payload physics for the pick-and-place task. Pure (no extern),
+// headless-tested. The pick-and-place STATE MACHINE itself lives in 06_main.src
+// (it drives IK targets and frame timing); the testable pieces — object setup,
+// grasp/release, and gravity settling — live here.
+
+// state: 0 = resting in bin, 1 = grasped (glued to gripper), 2 = falling,
+//        3 = placed (resting on the tray)
+type Dough struct { pos Vec3  vel Vec3  state int  slot int }
+
+func mk_dough_set() (ds) {
+    ds = []Dough{}
+    i := 0
+    while i < N_DOUGH() {
+        ds = append(ds, Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1})
+        i = i + 1
+    }
+}
+
+// reset every ball back to its bin source, unplaced
+func reset_dough(ds) (out) {
+    out = ds
+    i := 0
+    while i < len(out) {
+        out[i] = Dough{bin_pos(i), Vec3{0.0, 0.0, 0.0}, 0, 0 - 1}
+        i = i + 1
+    }
+}
+
+func dough_grasp(d) (o)  { o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 1, d.slot} }
+func dough_release(d) (o) { o = Dough{d.pos, Vec3{0.0, 0.0, 0.0}, 2, d.slot} }
+
+// glue a grasped ball to the gripper tip
+func dough_hold(d, tip) (o) { o = Dough{tip, Vec3{0.0, 0.0, 0.0}, 1, d.slot} }
+
+// integrate one falling ball under gravity; rest on the tray surface
+func dough_fall(d, dt) (out) {
+    out = d
+    if d.state == 2 {
+        nvy := d.vel.y - 9.8 * dt
+        ny := d.pos.y + nvy * dt
+        rest := DOUGH_REST_TRAY()
+        if ny <= rest {
+            out = Dough{Vec3{d.pos.x, rest, d.pos.z}, Vec3{0.0, 0.0, 0.0}, 3, d.slot}
+        } else {
+            out = Dough{Vec3{d.pos.x, ny, d.pos.z}, Vec3{0.0, nvy, 0.0}, 2, d.slot}
+        }
+    }
+}

@@ -1,46 +1,65 @@
 // machin-demo-game-robotic-arm — 06_main.src
-// Step 3: the rig comes alive. Each frame we pick a moving target over the
-// table, solve IK for it (ik_pick → gripper points straight down), and drive
-// the four joints toward that solution through the damped actuators on a fixed
-// 60 Hz accumulator. The arm visibly chases the target; a marker shows the
-// commanded target (green = reachable, red = out of reach) and a small cube
-// shows the actual gripper tip lagging behind as the actuators catch up.
+// Step 5: the autonomous bakery loop. A pick-and-place state machine drives the
+// arm to lift dough balls from the bin and set them, one per slot, on the baking
+// tray — grasp (ball glued to the gripper), release (ball falls under gravity
+// and settles in its slot), repeat until the tray is full, then reset and loop.
+// All four joints are flow-limited hydraulic actuators; IK keeps the gripper
+// pointing straight down at every waypoint.
 
-var g_joints = []Joint{}   // the 4 actuated joints (persist across frames)
-var g_init = 0
-var g_t = 0.0              // sim clock (s)
-var g_acc = 0.0           // fixed-timestep accumulator
+// ── pick-and-place phases ─────────────────────────────────────────────────
+func P_START() (n)      { n = 0 }
+func P_OVER_PICK() (n)  { n = 1 }
+func P_DESC_PICK() (n)  { n = 2 }
+func P_GRASP() (n)      { n = 3 }
+func P_LIFT() (n)       { n = 4 }
+func P_OVER_PLACE() (n) { n = 5 }
+func P_DESC_PLACE() (n) { n = 6 }
+func P_RELEASE() (n)    { n = 7 }
+func P_RETRACT() (n)    { n = 8 }
+func P_RESET() (n)      { n = 9 }
+
+func HOVER() (v)        { v = 0.70 }   // safe height above pick/place
+func REL_GAP() (v)      { v = 0.16 }   // release a little above the slot -> drop
+func GRIP_CLOSED() (v)  { v = 0.12 }
+func GRIP_RATE() (v)    { v = 3.0 }    // gripper open/close speed (units/s)
+func ARRIVE_EPS() (v)   { v = 0.08 }   // tip-on-target tolerance
+
+// ── live state (package globals persist across frames) ────────────────────
+var g_joints = []Joint{}
+var g_jinit = 0
+var g_acc = 0.0
+var cam_a = 0.0
+
+var g_dough = []Dough{}
+var g_phase = 0
+var g_phase_t = 0.0
+var g_cur = 0          // dough index being handled
+var g_slot = 0         // next tray slot to fill
+var g_grip = 1.0       // animated gripper opening
+var g_target = Vec3{2.0, 1.5, 0.0}
+var g_dgrip = 1.0      // desired gripper opening for the current phase
+var g_pick = Vec3{0.0, 0.0, 0.0}
+var g_place = Vec3{0.0, 0.0, 0.0}
+var g_cycles = 0       // completed full trays
 
 func PHYS_H() (v) { v = 1.0 / 60.0 }
-
-// round to 1 decimal for tidy HUD numbers
 func r1(x) (o) { o = round(x * 10.0) / 10.0 }
-
-// the demo target path: sweep bin<->tray, drift in z, bob up and down
-func target_at(t) (p) {
-    sx := (sin(t * 0.55) + 1.0) / 2.0
-    tx := lerpf(BIN_X() + 0.3, TRAY_X() - 0.3, sx)
-    tz := cos(t * 0.9) * 0.8
-    ty := 0.35 + (sin(t * 1.7) * 0.5 + 0.5) * 0.9   // 0.35 .. 1.25
-    p = Vec3{tx, ty, tz}
-}
 
 func init_joints() {
     g_joints = append(g_joints, mk_joint(REST_J1()))
     g_joints = append(g_joints, mk_joint(REST_J2()))
     g_joints = append(g_joints, mk_joint(REST_J3()))
     g_joints = append(g_joints, mk_joint(REST_J4()))
-    g_init = 1
+    g_jinit = 1
 }
 
-// max angular speed for a joint: base yaw uses its rotary actuator; the three
-// pitch joints are flow-limited by their hydraulic cylinder at the current angle
+// max angular speed: base yaw uses its rotary actuator; pitch joints are
+// flow-limited by their cylinder at the current angle
 func joint_vmax(i, angle) (v) {
     v = ACT_VMAX(0)
     if i > 0 { v = cyl_vmax(angle, cyl_spec(i)) }
 }
 
-// advance all 4 joints one fixed step toward the commanded angles
 func step_joints(j1t, j2t, j3t, j4t, h) {
     tg := []float{}
     tg = append(tg, j1t)
@@ -55,10 +74,112 @@ func step_joints(j1t, j2t, j3t, j4t, h) {
     }
 }
 
-func draw_hud(target, ok) {
-    DrawText("MACHIN ROBOTIC ARM  —  step 4: flow-limited hydraulics + pressure",
+// ── state machine ─────────────────────────────────────────────────────────
+func enter_phase(p) {
+    g_phase = p
+    g_phase_t = 0.0
+    up := Vec3{0.0, HOVER(), 0.0}
+    rel := Vec3{0.0, REL_GAP(), 0.0}
+
+    if p == P_START() {
+        g_dough[g_cur] = Dough{g_dough[g_cur].pos, g_dough[g_cur].vel, g_dough[g_cur].state, g_slot}
+        g_pick = g_dough[g_cur].pos
+        g_place = slot_pos(g_slot)
+        enter_phase(P_OVER_PICK())
+        return
+    }
+    if p == P_OVER_PICK()  { g_target = vadd(g_pick, up)   g_dgrip = 1.0 }
+    if p == P_DESC_PICK()  { g_target = g_pick             g_dgrip = 1.0 }
+    if p == P_GRASP()      { g_target = g_pick             g_dgrip = GRIP_CLOSED() }
+    if p == P_LIFT()       { g_target = vadd(g_pick, up)   g_dgrip = GRIP_CLOSED() }
+    if p == P_OVER_PLACE() { g_target = vadd(g_place, up)  g_dgrip = GRIP_CLOSED() }
+    if p == P_DESC_PLACE() { g_target = vadd(g_place, rel) g_dgrip = GRIP_CLOSED() }
+    if p == P_RELEASE()    { g_target = vadd(g_place, rel) g_dgrip = 1.0 }
+    if p == P_RETRACT()    { g_target = vadd(g_place, up)  g_dgrip = 1.0 }
+    if p == P_RESET()      { g_target = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0}  g_dgrip = 1.0 }
+}
+
+func arrived(tip) (b) { b = vdist(tip, g_target) < ARRIVE_EPS() }
+
+func advance() {
+    g_cur = g_cur + 1
+    g_slot = g_slot + 1
+    if g_cur >= N_DOUGH() {
+        g_cycles = g_cycles + 1
+        enter_phase(P_RESET())
+    } else {
+        enter_phase(P_START())
+    }
+}
+
+func task_step(tip) {
+    if g_phase == P_OVER_PICK() {
+        if arrived(tip) { enter_phase(P_DESC_PICK()) }
+    } else if g_phase == P_DESC_PICK() {
+        if arrived(tip) { if g_phase_t > 0.2 { enter_phase(P_GRASP()) } }
+    } else if g_phase == P_GRASP() {
+        if g_grip <= GRIP_CLOSED() + 0.02 { if g_phase_t > 0.35 {
+            g_dough[g_cur] = dough_grasp(g_dough[g_cur])
+            enter_phase(P_LIFT())
+        } }
+    } else if g_phase == P_LIFT() {
+        if arrived(tip) { enter_phase(P_OVER_PLACE()) }
+    } else if g_phase == P_OVER_PLACE() {
+        if arrived(tip) { enter_phase(P_DESC_PLACE()) }
+    } else if g_phase == P_DESC_PLACE() {
+        if arrived(tip) { if g_phase_t > 0.2 { enter_phase(P_RELEASE()) } }
+    } else if g_phase == P_RELEASE() {
+        if g_grip >= 0.85 { if g_phase_t > 0.2 {
+            g_dough[g_cur] = dough_release(g_dough[g_cur])
+            enter_phase(P_RETRACT())
+        } }
+    } else if g_phase == P_RETRACT() {
+        if arrived(tip) { advance() }
+    } else if g_phase == P_RESET() {
+        if g_phase_t > 1.2 {
+            g_dough = reset_dough(g_dough)
+            g_cur = 0
+            g_slot = 0
+            enter_phase(P_START())
+        }
+    }
+}
+
+func init_task() {
+    g_dough = mk_dough_set()
+    g_cur = 0
+    g_slot = 0
+    g_grip = 1.0
+    enter_phase(P_START())
+}
+
+// ── HUD ────────────────────────────────────────────────────────────────────
+func phase_name(p) (s) {
+    s = "start"
+    if p == P_OVER_PICK()  { s = "move over bin" }
+    if p == P_DESC_PICK()  { s = "descend" }
+    if p == P_GRASP()      { s = "grasp" }
+    if p == P_LIFT()       { s = "lift" }
+    if p == P_OVER_PLACE() { s = "move over tray" }
+    if p == P_DESC_PLACE() { s = "descend" }
+    if p == P_RELEASE()    { s = "release" }
+    if p == P_RETRACT()    { s = "retract" }
+    if p == P_RESET()      { s = "tray full - reset" }
+}
+
+func count_placed() (n) {
+    n = 0
+    i := 0
+    while i < len(g_dough) {
+        if g_dough[i].state == 3 { n = n + 1 }
+        i = i + 1
+    }
+}
+
+func draw_hud() {
+    DrawText("MACHIN ROBOTIC ARM  —  step 5: autonomous bakery pick & place",
              16, 14, 20, C_WHITE())
-    DrawText("hydraulic cylinders drive each joint  |  flow caps speed  |  cylinders tint with load",
+    DrawText("4-DOF hydraulic arm  |  analytic IK  |  grasp -> lift -> place -> drop  |  fully autonomous",
              16, 42, 16, C_DIM())
 
     a1 := g_joints[0].angle
@@ -66,12 +187,11 @@ func draw_hud(target, ok) {
     a3 := g_joints[2].angle
     a4 := g_joints[3].angle
 
-    tl := "target   x " + str(r1(target.x)) + "   y " + str(r1(target.y)) + "   z " + str(r1(target.z))
-    if ok { tl = tl + "   [reachable]" } else { tl = tl + "   [OUT OF REACH]" }
-    DrawText(tl, 16, WIN_H() - 110, 16, C_DIM())
+    sl := "phase   " + phase_name(g_phase) + "      placed " + str(count_placed()) + " / " + str(N_SLOTS())
+    sl = sl + "      trays done " + str(g_cycles)
+    DrawText(sl, 16, WIN_H() - 110, 16, C_WHITE())
 
-    jl := "joints   J1 " + str(r1(a1)) + "   J2 " + str(r1(a2))
-    jl = jl + "   J3 " + str(r1(a3)) + "   J4 " + str(r1(a4))
+    jl := "joints   J1 " + str(r1(a1)) + "   J2 " + str(r1(a2)) + "   J3 " + str(r1(a3)) + "   J4 " + str(r1(a4))
     DrawText(jl, 16, WIN_H() - 84, 16, C_DIM())
 
     pl := "pressure (bar)   SH " + str(r1(cyl_pressure(1, a1, a2, a3, a4)))
@@ -82,23 +202,35 @@ func draw_hud(target, ok) {
     DrawText("Esc: quit", 16, WIN_H() - 32, 16, C_DIM())
 }
 
+func draw_all_dough() {
+    i := 0
+    while i < len(g_dough) {
+        d := g_dough[i]
+        placed := false
+        if d.state == 3 { placed = true }
+        draw_dough(d.pos, placed)
+        i = i + 1
+    }
+}
+
 func main() {
     InitWindow(WIN_W(), WIN_H(), TITLE())
     SetTargetFPS(60)
     init_joints()
-
-    cam_angle := 0.0
+    init_task()
 
     while WindowShouldClose() == false {
         dt := GetFrameTime()
-        g_t = g_t + dt
-        cam_angle = cam_angle + dt * 0.18
+        cam_a = cam_a + dt * 0.12
+        g_phase_t = g_phase_t + dt
 
-        // commanded target + IK solution (gripper points straight down)
-        target := target_at(g_t)
-        j1t, j2t, j3t, j4t, ok := ik_pick(target)
+        // animate gripper toward the phase's desired opening
+        gr := GRIP_RATE() * dt
+        if g_dgrip > g_grip { g_grip = minf(g_grip + gr, g_dgrip) }
+        if g_dgrip < g_grip { g_grip = maxf(g_grip - gr, g_dgrip) }
 
-        // fixed-timestep actuator integration
+        // IK for the current waypoint, then drive the joints (fixed 60 Hz)
+        j1t, j2t, j3t, j4t, ok := ik_pick(g_target)
         g_acc = g_acc + dt
         h := PHYS_H()
         steps := 0
@@ -106,21 +238,28 @@ func main() {
             step_joints(j1t, j2t, j3t, j4t, h)
             g_acc = g_acc - h
             steps = steps + 1
-            if steps > 8 { g_acc = 0.0 }   // avoid spiral-of-death on a stall
+            if steps > 8 { g_acc = 0.0 }
         }
 
-        // cosmetic grip: open up high, close down low (real grasp in step 5)
-        grip := clampf((target.y - 0.35) / 0.55, 0.0, 1.0)
-
-        // live joint angles + actual gripper tip
         a1 := g_joints[0].angle
         a2 := g_joints[1].angle
         a3 := g_joints[2].angle
         a4 := g_joints[3].angle
         tip := fk_tip(a1, a2, a3, a4)
 
-        cx := sin(cam_angle) * 9.0
-        cz := cos(cam_angle) * 9.0
+        // keep a grasped ball glued to the gripper; settle any falling balls
+        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip) }
+        i := 0
+        while i < len(g_dough) {
+            g_dough[i] = dough_fall(g_dough[i], dt)
+            i = i + 1
+        }
+
+        // advance the pick-and-place state machine
+        task_step(tip)
+
+        cx := sin(cam_a) * 9.0
+        cz := cos(cam_a) * 9.0
         cam := Camera3D{Vector3{cx, 6.0, cz},
                         Vector3{0.0, 1.2, 0.0},
                         Vector3{0.0, 1.0, 0.0},
@@ -134,26 +273,12 @@ func main() {
         draw_table()
         draw_bin()
         draw_tray()
-        draw_arm(a1, a2, a3, a4, grip)
+        draw_all_dough()
+        draw_arm(a1, a2, a3, a4, g_grip)
         draw_hydraulics(a1, a2, a3, a4)
-
-        // commanded target marker (green reachable / red not)
-        mc := col(90, 220, 110)
-        if ok == false { mc = col(230, 90, 70) }
-        rlPushMatrix()
-        rlTranslatef(target.x, target.y, target.z)
-        DrawSphere(v3z(), 0.09, mc)
-        rlPopMatrix()
-
-        // actual gripper tip (small cube) — shows the actuators lagging/catching
-        rlPushMatrix()
-        rlTranslatef(tip.x, tip.y, tip.z)
-        DrawCube(v3z(), 0.10, 0.10, 0.10, C_ROD())
-        rlPopMatrix()
-
         EndMode3D()
 
-        draw_hud(target, ok)
+        draw_hud()
         EndDrawing()
     }
 

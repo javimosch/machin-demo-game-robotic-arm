@@ -126,6 +126,46 @@ func main() {
     check("pressure >= base", p_ext >= P_BASE())
     check("pressure rises with extension", p_ext > p_tuck)
 
+    // --- layout: slots & bin positions ---
+    check("dough count = slot count", N_DOUGH() == N_SLOTS())
+    s0 := slot_pos(0)
+    s5 := slot_pos(5)
+    check("slot rest height = tray", approx(s0.y, DOUGH_REST_TRAY(), 0.0001))
+    check("slots are distinct", vdist(s0, s5) > 0.1)
+    check("slot near tray x", approx(s0.x, TRAY_X(), 0.6) == true)
+    b0 := bin_pos(0)
+    b5 := bin_pos(5)
+    check("bin rest height", approx(b0.y, DOUGH_REST_BIN(), 0.0001))
+    check("bin positions distinct", vdist(b0, b5) > 0.1)
+
+    // --- task: dough set, grasp/release, gravity settle ---
+    ds := mk_dough_set()
+    check("dough set size", len(ds) == N_DOUGH())
+    check("dough start in bin (state 0)", ds[0].state == 0)
+    check("dough start at bin pos", vapprox(ds[0].pos, bin_pos(0), 0.0001))
+
+    gd := dough_grasp(ds[0])
+    check("grasp -> state 1", gd.state == 1)
+    rd := dough_release(gd)
+    check("release -> state 2", rd.state == 2)
+
+    // a released ball above the tray falls and settles in its slot
+    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0}
+    miny := 999.0
+    fi := 0
+    while fi < 200 {
+        fall = dough_fall(fall, 1.0 / 60.0)
+        if fall.pos.y < miny { miny = fall.pos.y }
+        fi = fi + 1
+    }
+    check("dough lands (state 3)", fall.state == 3)
+    check("dough rests at tray height", approx(fall.pos.y, DOUGH_REST_TRAY(), 0.0001))
+    check("dough never sinks below rest", miny >= DOUGH_REST_TRAY() - 0.0001)
+
+    // a ball still in the bin is untouched by gravity
+    still := dough_fall(ds[1], 1.0 / 60.0)
+    check("in-bin dough unaffected by gravity", vapprox(still.pos, ds[1].pos, 0.0001))
+
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
     if g_fail == 0 {

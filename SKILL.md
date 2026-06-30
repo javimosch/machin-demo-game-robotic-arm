@@ -61,8 +61,13 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
 - **Step 4 ✅** flow-limited hydraulics: `02b_hydraulics.src` — forward-only
   linkage `cyl_len(θ)`, flow→speed cap `cyl_vmax`, `cyl_pressure` proxy. Drawn as
   world-space cylinders (`draw_hydraulics` in 04_arm), pressure on HUD + barrel
-  tint. 41 headless tests. Verified by screenshot.
-- Step 5: see README roadmap.
+  tint. Verified by screenshot.
+- **Step 5 ✅ (v1 MVP)** autonomous pick-and-place: `01b_layout.src` (shared
+  bin/tray/slot/dough positions) + `02c_task.src` (Dough type, grasp/release,
+  `dough_fall` gravity). The state machine lives in `06_main.src` (`enter_phase`
+  / `task_step`, 10 phases). Grasped ball glued to `fk_tip`; released ball falls
+  and settles golden in its slot; loops + resets. **56 headless tests pass.**
+  Verified by screenshot across a full cycle.
 
 ## Hydraulics notes
 

@@ -4,12 +4,14 @@
 # they are also what tests/run_tests.sh compiles & runs headless.
 #   src/00_math.src       — scalars + plain Vec3 value type
 #   src/01_armspec.src    — arm geometry, limits, rest pose, actuator params
+#   src/01b_layout.src    — workcell layout: bin/tray/dough positions (shared)
 #   src/02_kinematics.src — forward + inverse kinematics, damped actuators
 #   src/02b_hydraulics.src— flow-limited cylinder model + pressure proxy
+#   src/02c_task.src      — dough objects, grasp/release, payload gravity
 #   src/03_ffi.src        — raylib + rlgl FFI, Vector3/Color helpers, palette
-#   src/04_arm.src        — 4-DOF arm forward-kinematics rendering
+#   src/04_arm.src        — 4-DOF arm forward-kinematics rendering + cylinders
 #   src/05_scene.src      — table, dough bin, baking tray, floor
-#   src/06_main.src       — orbit camera + main loop
+#   src/06_main.src       — pick-and-place state machine + main loop
 # Vendors raylib 5.0 if no system raylib is found. machin v0.48.0+.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,7 +19,7 @@ MACHIN="${MACHIN:-machin}"
 BIN=robotic-arm
 COMBINED=app.mfl
 
-SRCS="src/00_math.src src/01_armspec.src src/02_kinematics.src src/02b_hydraulics.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
+SRCS="src/00_math.src src/01_armspec.src src/01b_layout.src src/02_kinematics.src src/02b_hydraulics.src src/02c_task.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
 
 have_system_raylib() {
     pkg-config --exists raylib 2>/dev/null && return 0
