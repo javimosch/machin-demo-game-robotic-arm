@@ -109,9 +109,9 @@ func main() {
             g_reset_t = 0.0
         }
 
-        cx := sin(cam_a) * 13.5
-        cz := cos(cam_a) * 13.5
-        cam := Camera3D{Vector3{cx, 9.0, cz + 0.8}, Vector3{0.0, 1.0, 0.8}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
+        cx := sin(cam_a) * 15.5
+        cz := cos(cam_a) * 15.5
+        cam := Camera3D{Vector3{cx, 10.5, cz + 1.4}, Vector3{0.0, 1.0, 1.4}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
 
         BeginDrawing()
         ClearBackground(C_BG())

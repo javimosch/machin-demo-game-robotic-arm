@@ -166,24 +166,26 @@ func draw_stations(t) {
     rlPushMatrix() rlTranslatef(ch.x, 0.38, ch.z) DrawCube(v3z(), 0.4, 0.04, 0.4, col(90, 220, 110)) rlPopMatrix()
 }
 
-// the client-facing counter (in front, +z) that holds the display loaves
+// the client-facing counter (out in front, +z): a large display table the rail
+// arm can extend onto without folding back on itself
 func draw_client_counter() {
-    cz := 3.3
-    w := 7.0
-    d := 1.4
+    cz := 4.4
+    w := 8.0
+    d := 2.0
     th := 0.20
     rlPushMatrix()
     rlTranslatef(0.0, 0.0 - th / 2.0, cz)
     DrawCube(v3z(), w, th, d, C_TABLE())
     DrawCubeWires(v3z(), w, th, d, C_TABLE_LEG())
     rlPopMatrix()
-    draw_leg(0.0 - 3.0, cz - 0.5)
-    draw_leg(3.0, cz - 0.5)
-    draw_leg(0.0 - 3.0, cz + 0.5)
-    draw_leg(3.0, cz + 0.5)
+    iz := d / 2.0 - 0.4
+    draw_leg(0.0 - 3.5, cz - iz)
+    draw_leg(3.5, cz - iz)
+    draw_leg(0.0 - 3.5, cz + iz)
+    draw_leg(3.5, cz + iz)
     // back display shelf panel
     rlPushMatrix()
-    rlTranslatef(0.0, 0.6, cz + 0.62)
+    rlTranslatef(0.0, 0.6, cz + d / 2.0 + 0.05)
     DrawCube(v3z(), w, 1.2, 0.10, col(110, 88, 64))
     rlPopMatrix()
 }
