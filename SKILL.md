@@ -58,7 +58,23 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
 - **Step 2 ✅** pure IK + actuator core; 31 headless tests pass. GUI unchanged.
 - **Step 3 ✅** live arm: `ik_pick` → damped joints @ fixed 60 Hz, tracks a
   moving target, gripper held down. Verified by screenshot.
-- Steps 4–5: see README roadmap.
+- **Step 4 ✅** flow-limited hydraulics: `02b_hydraulics.src` — forward-only
+  linkage `cyl_len(θ)`, flow→speed cap `cyl_vmax`, `cyl_pressure` proxy. Drawn as
+  world-space cylinders (`draw_hydraulics` in 04_arm), pressure on HUD + barrel
+  tint. 41 headless tests. Verified by screenshot.
+- Step 5: see README roadmap.
+
+## Hydraulics notes
+
+- The cylinder model is **forward-only** on purpose: `cyl_len(θ)` (law of cosines)
+  and `ds/dθ` are all we compute, so there's no monotonicity/invertibility
+  requirement and it works across the full joint range. The "flow limit" is real:
+  `joint_vmax` feeds `cyl_vmax = qmax/|ds/dθ|` into `joint_step`'s velocity cap.
+- Cylinders are drawn in **world space** via `DrawCylinderEx` (world endpoints),
+  computed from the same `link_dir`/`link_norm` helpers the sim uses — they do
+  NOT ride the `draw_arm` matrix stack.
+- Upgrade path to the full pressure/force model: keep the interfaces, replace the
+  flow follower with `Q→ΔV→P, F=P·A−load−friction`, integrate the piston.
 
 ## Known limitations / next polish
 

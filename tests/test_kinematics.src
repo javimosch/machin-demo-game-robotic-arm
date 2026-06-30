@@ -102,6 +102,30 @@ func main() {
     j1s := joint_step(j0, 90.0, dt, vmax, amax, gain)
     check("actuator honors amax on step 1", absf(j1s.vel) <= amax * dt + 0.001)
 
+    // --- hydraulics: linkage length, derivative, flow cap, pressure ---
+    spu := CylSpec{1.0, 1.0, 0.0, 1.0}
+    check("cyl_len θ=0 -> 0", approx(cyl_len(0.0, spu), 0.0, 0.0001))
+    check("cyl_len θ=90 -> √2", approx(cyl_len(90.0, spu), sqrt(2.0), 0.0001))
+    check("cyl_len θ=180 -> 2", approx(cyl_len(180.0, spu), 2.0, 0.0001))
+
+    spe := cyl_spec(2)
+    th := 40.0
+    num := (cyl_len(th + 0.01, spe) - cyl_len(th - 0.01, spe)) / 0.02   // per deg
+    check("cyl_dlen_deg matches numerical", approx(cyl_dlen_deg(th, spe), num, 0.0001))
+
+    dd := absf(cyl_dlen_deg(th, spe))
+    expv := clampf(spe.qmax / dd, 10.0, 220.0)
+    check("cyl_vmax = qmax/|dlen|", approx(cyl_vmax(th, spe), expv, 0.001))
+    check("cyl_vmax >= floor", cyl_vmax(th, spe) >= 10.0)
+    check("cyl_vmax <= ceil", cyl_vmax(th, spe) <= 220.0)
+
+    // pressure: >= base, and rises as the arm extends horizontally
+    p_tuck := cyl_pressure(1, 0.0, 0.0, 0.0, 0.0)            // arm straight up
+    p_ext := cyl_pressure(1, 0.0, 0.0 - 90.0, 0.0, 0.0)      // arm horizontal
+    check("pressure tucked ≈ base", approx(p_tuck, P_BASE(), 1.0))
+    check("pressure >= base", p_ext >= P_BASE())
+    check("pressure rises with extension", p_ext > p_tuck)
+
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
     if g_fail == 0 {

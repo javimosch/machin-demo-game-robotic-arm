@@ -82,3 +82,60 @@ func draw_arm(j1, j2, j3, j4, grip) {
 
     rlPopMatrix()
 }
+
+// ── hydraulic cylinders ───────────────────────────────────────────────────
+// Drawn in WORLD space (DrawCylinderEx takes world endpoints), so they don't
+// share the matrix stack with draw_arm — we compute the anchor points from the
+// same FK helpers (link_dir / link_norm) the simulation uses.
+
+// pressure -> barrel color (steel -> hot red as it loads up)
+func pcol(p) (c) {
+    t := clampf((p - P_BASE()) / (P_MAX_DISP() - P_BASE()), 0.0, 1.0)
+    r := int(lerpf(150.0, 235.0, t))
+    g := int(lerpf(158.0, 80.0, t))
+    b := int(lerpf(168.0, 64.0, t))
+    c = col(r, g, b)
+}
+
+// a hydraulic cylinder from world A to world B: fixed barrel + sliding rod
+func draw_cyl(a, b, barrel, rb, rr, bc) {
+    ab := vsub(b, a)
+    l := vlen(ab)
+    u := vnorm(ab)
+    bl := minf(barrel, l - 0.04)
+    if bl < 0.04 { bl = 0.04 }
+    bp := vadd(a, vscale(u, bl))
+    DrawCylinderEx(vec2r(a), vec2r(bp), rb, rb, 10, bc)        // barrel
+    DrawCylinderEx(vec2r(bp), vec2r(b), rr, rr, 8, C_ROD())    // piston rod
+    DrawSphere(vec2r(a), rb * 0.85, C_JOINT())                 // pivot caps
+    DrawSphere(vec2r(b), rr * 1.25, C_JOINT())
+}
+
+func draw_hydraulics(j1, j2, j3, j4) {
+    phi := deg2rad(j1)
+    s0 := Vec3{BASE_X(), SHOULDER_Y(), BASE_Z()}
+    du := link_dir(j2, phi)
+    nu := link_norm(j2, phi)
+    e0 := vadd(s0, vscale(du, L2()))
+    df := link_dir(j2 + j3, phi)
+    nf := link_norm(j2 + j3, phi)
+    w0 := vadd(e0, vscale(df, L3()))
+    dl := link_dir(j2 + j3 + j4, phi)
+    nl := link_norm(j2 + j3 + j4, phi)
+    ncol := link_norm(0.0, phi)   // column is vertical -> normal is radial
+
+    // shoulder cylinder: column base -> upper-arm
+    ash := vadd(vadd(s0, Vec3{0.0, 0.0 - 0.45, 0.0}), vscale(ncol, 0.30))
+    bsh := vadd(vadd(s0, vscale(du, 0.75)), vscale(nu, 0.30))
+    draw_cyl(ash, bsh, 0.55, 0.10, 0.06, pcol(cyl_pressure(1, j1, j2, j3, j4)))
+
+    // elbow cylinder: upper-arm -> forearm
+    ael := vadd(vsub(e0, vscale(du, 0.50)), vscale(nu, 0.26))
+    bel := vadd(vadd(e0, vscale(df, 0.55)), vscale(nf, 0.26))
+    draw_cyl(ael, bel, 0.45, 0.09, 0.055, pcol(cyl_pressure(2, j1, j2, j3, j4)))
+
+    // wrist cylinder: forearm -> tool
+    awr := vadd(vsub(w0, vscale(df, 0.30)), vscale(nf, 0.20))
+    bwr := vadd(vadd(w0, vscale(dl, 0.22)), vscale(nl, 0.20))
+    draw_cyl(awr, bwr, 0.26, 0.07, 0.04, pcol(cyl_pressure(3, j1, j2, j3, j4)))
+}

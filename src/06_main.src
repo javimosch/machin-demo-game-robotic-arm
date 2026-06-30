@@ -33,6 +33,13 @@ func init_joints() {
     g_init = 1
 }
 
+// max angular speed for a joint: base yaw uses its rotary actuator; the three
+// pitch joints are flow-limited by their hydraulic cylinder at the current angle
+func joint_vmax(i, angle) (v) {
+    v = ACT_VMAX(0)
+    if i > 0 { v = cyl_vmax(angle, cyl_spec(i)) }
+}
+
 // advance all 4 joints one fixed step toward the commanded angles
 func step_joints(j1t, j2t, j3t, j4t, h) {
     tg := []float{}
@@ -42,24 +49,35 @@ func step_joints(j1t, j2t, j3t, j4t, h) {
     tg = append(tg, j4t)
     i := 0
     while i < 4 {
-        g_joints[i] = joint_step(g_joints[i], tg[i], h, ACT_VMAX(i), ACT_AMAX(i), ACT_GAIN(i))
+        vmax := joint_vmax(i, g_joints[i].angle)
+        g_joints[i] = joint_step(g_joints[i], tg[i], h, vmax, ACT_AMAX(i), ACT_GAIN(i))
         i = i + 1
     }
 }
 
-func draw_hud(target, ok, grip) {
-    DrawText("MACHIN ROBOTIC ARM  —  step 3: IK + actuators driving the live arm",
+func draw_hud(target, ok) {
+    DrawText("MACHIN ROBOTIC ARM  —  step 4: flow-limited hydraulics + pressure",
              16, 14, 20, C_WHITE())
-    DrawText("tracking a moving target  |  analytic IK -> damped joints @ 60 Hz  |  gripper held down",
+    DrawText("hydraulic cylinders drive each joint  |  flow caps speed  |  cylinders tint with load",
              16, 42, 16, C_DIM())
+
+    a1 := g_joints[0].angle
+    a2 := g_joints[1].angle
+    a3 := g_joints[2].angle
+    a4 := g_joints[3].angle
 
     tl := "target   x " + str(r1(target.x)) + "   y " + str(r1(target.y)) + "   z " + str(r1(target.z))
     if ok { tl = tl + "   [reachable]" } else { tl = tl + "   [OUT OF REACH]" }
-    DrawText(tl, 16, WIN_H() - 84, 16, C_DIM())
+    DrawText(tl, 16, WIN_H() - 110, 16, C_DIM())
 
-    jl := "joints   J1 " + str(r1(g_joints[0].angle)) + "   J2 " + str(r1(g_joints[1].angle))
-    jl = jl + "   J3 " + str(r1(g_joints[2].angle)) + "   J4 " + str(r1(g_joints[3].angle))
-    DrawText(jl, 16, WIN_H() - 58, 16, C_DIM())
+    jl := "joints   J1 " + str(r1(a1)) + "   J2 " + str(r1(a2))
+    jl = jl + "   J3 " + str(r1(a3)) + "   J4 " + str(r1(a4))
+    DrawText(jl, 16, WIN_H() - 84, 16, C_DIM())
+
+    pl := "pressure (bar)   SH " + str(r1(cyl_pressure(1, a1, a2, a3, a4)))
+    pl = pl + "   EL " + str(r1(cyl_pressure(2, a1, a2, a3, a4)))
+    pl = pl + "   WR " + str(r1(cyl_pressure(3, a1, a2, a3, a4)))
+    DrawText(pl, 16, WIN_H() - 58, 16, C_DIM())
 
     DrawText("Esc: quit", 16, WIN_H() - 32, 16, C_DIM())
 }
@@ -117,6 +135,7 @@ func main() {
         draw_bin()
         draw_tray()
         draw_arm(a1, a2, a3, a4, grip)
+        draw_hydraulics(a1, a2, a3, a4)
 
         // commanded target marker (green reachable / red not)
         mc := col(90, 220, 110)
@@ -134,7 +153,7 @@ func main() {
 
         EndMode3D()
 
-        draw_hud(target, ok, grip)
+        draw_hud(target, ok)
         EndDrawing()
     }
 

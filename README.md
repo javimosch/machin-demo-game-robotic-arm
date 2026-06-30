@@ -32,10 +32,15 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   drives the four joints toward it through the damped actuators on a fixed 60 Hz
   accumulator. The arm visibly chases a marker (green = reachable / red = out of
   reach); a tip-cube shows the actuators lagging then catching up.
+- **Step 4 — flow-limited hydraulics.** ✅ The three pitch joints are actuated by
+  hydraulic cylinders: a forward-only law-of-cosines linkage maps joint angle →
+  cylinder length (drawn in world space as barrel + sliding rod), the valve's max
+  **flow caps each joint's angular speed** through the local linkage ratio, and a
+  **pressure proxy** (gravity load ÷ moment arm) shows on the HUD and tints each
+  barrel toward red under load. **41 headless tests pass.**
 
 Roadmap (additive, each step verified before the next):
 
-4. Hydraulic cylinders (flow-limited) + pressure HUD.
 5. Pick-and-place state machine + grasp/attach + payload gravity → autonomous loop.
 
 ## Test
@@ -67,6 +72,7 @@ are also exactly what the headless tests compile and run.
 | `src/00_math.src` | scalar helpers + a plain `Vec3` value type |
 | `src/01_armspec.src` | arm geometry, joint limits, rest pose, actuator params |
 | `src/02_kinematics.src` | forward + inverse kinematics, damped actuators |
+| `src/02b_hydraulics.src` | flow-limited cylinder linkage + pressure proxy |
 | `src/03_ffi.src` | raylib + rlgl FFI, `Vector3`/`Color` helpers, window + palette |
 | `src/04_arm.src` | 4-DOF arm forward-kinematics rendering |
 | `src/05_scene.src` | table, dough bin, baking tray, floor |

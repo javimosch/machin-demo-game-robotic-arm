@@ -1,0 +1,106 @@
+// machin-demo-game-robotic-arm — 02b_hydraulics.src
+// Flow-limited hydraulic actuation for the three PITCH joints (shoulder J2,
+// elbow J3, wrist J4). Pure MFL (no extern), headless-tested.
+//
+// Model (v1, "flow-limited + drawn cylinders + pressure proxy"):
+//   * Each joint is driven by a hydraulic cylinder linked by a lever. The
+//     cylinder LENGTH for a joint angle follows the law of cosines of a 4-bar
+//     linkage:  s(θ) = sqrt(a² + b² - 2ab·cos(θ+θ0)).  Forward-only — no inverse
+//     needed — so it is valid across the whole joint range (no monotonicity
+//     requirement) and the drawn cylinder always matches the joint.
+//   * The valve's max FLOW caps piston speed, which caps the joint's angular
+//     speed through the local linkage ratio ds/dθ:  vmax(θ) = qmax / |ds/dθ|.
+//     This makes flow the binding constraint on motion (the authentic feel:
+//     slower where the linkage has poor leverage), feeding straight into the
+//     existing damped actuator's velocity limit.
+//   * PRESSURE is a load proxy: the gravity torque of the outboard links about
+//     the joint, divided by the cylinder's moment arm (force = τ / r).
+// Upgrade path (full model): replace the flow follower with pressure dynamics
+//   (Q→ΔV→P, F=P·A−load−friction, integrate the piston) — the same interfaces.
+
+type CylSpec struct { a float  b float  th0 float  qmax float }
+
+// per-joint linkage specs (index: 1=shoulder J2, 2=elbow J3, 3=wrist J4)
+func CYL_SHOULDER() (sp) { sp = CylSpec{0.90, 0.80, 70.0, 1.6} }
+func CYL_ELBOW() (sp)    { sp = CylSpec{0.80, 0.70, 20.0, 1.6} }
+func CYL_WRIST() (sp)    { sp = CylSpec{0.40, 0.35, 90.0, 0.9} }
+
+func cyl_spec(i) (sp) {
+    sp = CYL_SHOULDER()
+    if i == 2 { sp = CYL_ELBOW() }
+    if i == 3 { sp = CYL_WRIST() }
+}
+
+// ── linkage geometry ──────────────────────────────────────────────────────
+func cyl_len(theta, sp) (s) {
+    ang := deg2rad(theta + sp.th0)
+    s = sqrt(sp.a * sp.a + sp.b * sp.b - 2.0 * sp.a * sp.b * cos(ang))
+}
+
+// d(length)/d(theta), length-units per RADIAN  (ds/dang = a·b·sin(ang)/s)
+func cyl_dlen_rad(theta, sp) (d) {
+    ang := deg2rad(theta + sp.th0)
+    s := cyl_len(theta, sp)
+    d = sp.a * sp.b * sin(ang) / maxf(s, 0.0001)
+}
+
+// length-units per DEGREE
+func cyl_dlen_deg(theta, sp) (d) { d = cyl_dlen_rad(theta, sp) * (pi() / 180.0) }
+
+// flow-limited angular speed cap (deg/s) at this angle
+func cyl_vmax(theta, sp) (v) {
+    d := absf(cyl_dlen_deg(theta, sp))
+    if d < 0.00002 { v = 220.0 } else { v = sp.qmax / d }
+    v = clampf(v, 10.0, 220.0)
+}
+
+// ── arm-frame helpers (also used by the renderer) ─────────────────────────
+// world direction of a link at cumulative pitch `acc` (deg) under base yaw φ
+func link_dir(acc, phi) (d) {
+    a := deg2rad(acc)
+    d = Vec3{0.0 - sin(a) * cos(phi), cos(a), sin(a) * sin(phi)}
+}
+
+// in-plane normal to that link (the lever / mount direction)
+func link_norm(acc, phi) (n) {
+    a := deg2rad(acc)
+    n = Vec3{cos(a) * cos(phi), sin(a), 0.0 - cos(a) * sin(phi)}
+}
+
+// outboard weight proxy borne by each joint's cylinder
+func W_OUT(i) (w) {
+    w = 3.0
+    if i == 2 { w = 1.8 }
+    if i == 3 { w = 0.6 }
+}
+
+// ── pressure proxy (bar-ish display units) ────────────────────────────────
+func P_BASE() (v)     { v = 40.0 }    // standby system pressure
+func K_FORCE() (v)    { v = 8.0 }     // load -> pressure gain
+func P_MAX_DISP() (v) { v = 200.0 }   // gauge top (for coloring)
+
+func cyl_pressure(i, j1, j2, j3, j4) (p) {
+    phi := deg2rad(j1)
+    s0 := Vec3{BASE_X(), SHOULDER_Y(), BASE_Z()}
+    e0 := vadd(s0, vscale(link_dir(j2, phi), L2()))
+    w0 := vadd(e0, vscale(link_dir(j2 + j3, phi), L3()))
+    tip := vadd(w0, vscale(link_dir(j2 + j3 + j4, phi), TOOL_LEN()))
+
+    jp := s0
+    ang := j2
+    wout := W_OUT(1)
+    if i == 2 { jp = e0  ang = j3  wout = W_OUT(2) }
+    if i == 3 { jp = w0  ang = j4  wout = W_OUT(3) }
+
+    // COM of the outboard chain ~ midpoint joint..tip; gravity lever = its
+    // horizontal (radial) offset from the joint
+    com := vscale(vadd(jp, tip), 0.5)
+    dx := com.x - jp.x
+    dz := com.z - jp.z
+    larm := sqrt(dx * dx + dz * dz)
+
+    sp := cyl_spec(i)
+    rarm := absf(cyl_dlen_rad(ang, sp))
+    force := (wout * larm) / maxf(rarm, 0.001)
+    p = P_BASE() + K_FORCE() * force
+}

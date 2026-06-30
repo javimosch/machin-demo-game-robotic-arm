@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 MACHIN="${MACHIN:-machin}"
 
-PURE="src/00_math.src src/01_armspec.src src/02_kinematics.src tests/test_kinematics.src"
+PURE="src/00_math.src src/01_armspec.src src/02_kinematics.src src/02b_hydraulics.src tests/test_kinematics.src"
 OUT="$(mktemp --suffix=.mfl)"
 
 cat $PURE | "$MACHIN" encode /dev/stdin > "$OUT"

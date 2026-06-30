@@ -5,6 +5,7 @@
 #   src/00_math.src       — scalars + plain Vec3 value type
 #   src/01_armspec.src    — arm geometry, limits, rest pose, actuator params
 #   src/02_kinematics.src — forward + inverse kinematics, damped actuators
+#   src/02b_hydraulics.src— flow-limited cylinder model + pressure proxy
 #   src/03_ffi.src        — raylib + rlgl FFI, Vector3/Color helpers, palette
 #   src/04_arm.src        — 4-DOF arm forward-kinematics rendering
 #   src/05_scene.src      — table, dough bin, baking tray, floor
@@ -16,7 +17,7 @@ MACHIN="${MACHIN:-machin}"
 BIN=robotic-arm
 COMBINED=app.mfl
 
-SRCS="src/00_math.src src/01_armspec.src src/02_kinematics.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
+SRCS="src/00_math.src src/01_armspec.src src/02_kinematics.src src/02b_hydraulics.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
 
 have_system_raylib() {
     pkg-config --exists raylib 2>/dev/null && return 0
