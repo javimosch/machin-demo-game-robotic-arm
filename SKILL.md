@@ -56,4 +56,17 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
 
 - **Step 1 ✅** static workcell + FK rest pose + orbit camera. Builds & renders.
 - **Step 2 ✅** pure IK + actuator core; 31 headless tests pass. GUI unchanged.
-- Steps 3–5: see README roadmap.
+- **Step 3 ✅** live arm: `ik_pick` → damped joints @ fixed 60 Hz, tracks a
+  moving target, gripper held down. Verified by screenshot.
+- Steps 4–5: see README roadmap.
+
+## Known limitations / next polish
+
+- **Elbow-branch flip:** `ik_wrist_auto` picks by feasibility, so a sweeping
+  target can switch elbow branches mid-motion (a large, smooth-but-big elbow
+  swing). Fix when it matters: pick the branch closest to the current elbow
+  angle (continuity), e.g. an `ik_pick_continuous(target, prev_j3)`.
+- **State persistence pattern:** the live joints live in a package-global
+  `[]Joint` (`g_joints`), initialized once via `init_joints()` and updated with
+  `g_joints[i] = joint_step(...)` each fixed step. Globals persist across frames;
+  the slice element-assignment is visible because slices are reference-ish.

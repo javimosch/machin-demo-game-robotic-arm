@@ -26,13 +26,15 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
 - **Step 2 — IK + actuator core.** ✅ Pure-MFL forward + analytic inverse
   kinematics (base yaw + 2-link law of cosines, auto elbow-branch selection,
   joint limits, out-of-reach handling) and a damped, velocity/accel-limited
-  actuator model. **31 headless unit tests pass** (`./tests/run_tests.sh`) —
-  FK/IK round-trips, azimuth, reach limits, actuator convergence. The GUI still
-  renders the static rest pose; step 3 wires the core into the loop.
+  actuator model. **31 headless unit tests pass** (`./tests/run_tests.sh`).
+- **Step 3 — live arm.** ✅ The core is wired into the render loop: each frame
+  picks a moving target, solves `ik_pick` (gripper held straight down), and
+  drives the four joints toward it through the damped actuators on a fixed 60 Hz
+  accumulator. The arm visibly chases a marker (green = reachable / red = out of
+  reach); a tip-cube shows the actuators lagging then catching up.
 
 Roadmap (additive, each step verified before the next):
 
-3. Wire IK → damped actuators → the rendered arm; track a moving target.
 4. Hydraulic cylinders (flow-limited) + pressure HUD.
 5. Pick-and-place state machine + grasp/attach + payload gravity → autonomous loop.
 
