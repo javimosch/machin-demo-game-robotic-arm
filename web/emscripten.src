@@ -1,0 +1,6 @@
+// Web-only FFI: emscripten_sleep yields to the browser each frame so the
+// blocking main loop renders under -sASYNCIFY (no main-loop surgery needed).
+extern "emscripten" {
+    header "emscripten.h"
+    fn emscripten_sleep(i32)
+}

@@ -64,6 +64,25 @@ Esc quits.
 > OpenGL/X11/audio stack and needs a display. machin's no-dependency single-binary
 > property holds for the headless domain, not for GUI games.
 
+## Web build (WebAssembly)
+
+The same raylib renderer cross-compiles to WebAssembly via emscripten — the pure
+MFL simulation core has no extern block, and the raylib renderer compiles to
+WebGL — so the whole thing runs in a browser, no plugins:
+
+```sh
+source ~/emsdk/emsdk_env.sh && export EMSDK_PYTHON=/usr/bin/python3
+RLWEB=/path/to/raylib-5.0_webassembly ./web/build_web.sh   # -> web/build/index.{html,js,wasm}
+cd web/build && python3 -m http.server 8911                # serve locally
+```
+
+How it works: `web/build_web.sh` emits C with `machin build --emit-c`, injects a
+per-frame `emscripten_sleep` (so the blocking main loop yields to the browser
+under `-sASYNCIFY`), and links against raylib's web build with `emcc`
+(`-sUSE_GLFW=3`). `web/emscripten.src` declares the `emscripten_sleep` FFI;
+`web/shell.html` is the page. Verified in-browser: raylib 5.0 boots on the
+`WEB (HTML5)` backend with a live WebGL context.
+
 ## Source layout
 
 The files up to and including `02c` are the **pure simulation core** (no extern
