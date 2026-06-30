@@ -76,7 +76,15 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
   (`choose_job`), timed proof-rise + oven-bake, scoring. Pure logic in
   `01c_stations.src` + `02c_task.src`.
 - **Step 9 ✅** conveyor feed (animated) + KPI HUD (throughput/min, uptime, baked
-  count, rejects). **90 headless tests pass.**
+  count, rejects).
+- **Multi-arm core ✅ (refactor)** the singleton-globals arm became a pure
+  `Arm` value type in `02d_arm.src` — base frame (position + yaw + rail), 5
+  joints, its own FSM + job + serviced station range — held in a `[]Arm`.
+  Frame transforms (`world_to_local`/`local_to_world`) let an arm sit/face
+  anywhere; `arm_drive`/`arm_fsm` are pure (value-in/out, mutate the shared
+  `[]Dough`). `06_main` is now a thin world loop over the arms. Behavior is
+  identical with one pedestal arm (base 0). **97 headless tests.** This is the
+  foundation for N arms (e.g. a rail-mounted display arm).
 
 ## Verifying when the WM hides the window
 

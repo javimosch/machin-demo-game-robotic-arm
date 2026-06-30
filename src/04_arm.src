@@ -84,6 +84,18 @@ func draw_arm(j1, j2, j3, j4, j5, grip) {
     rlPopMatrix()
 }
 
+// draw an Arm in its world mount frame (base position + rail + yaw), then its
+// articulated body + hydraulic cylinders (computed in the arm-local frame)
+func draw_arm_world(a) {
+    rlPushMatrix()
+    rlTranslatef(a.base.x + a.rail, a.base.y, a.base.z)
+    rlRotatef(a.base_yaw, 0.0, 1.0, 0.0)
+    draw_arm(a.joints[0].angle, a.joints[1].angle, a.joints[2].angle,
+             a.joints[3].angle, a.joints[4].angle, a.grip)
+    draw_hydraulics(a.joints[0].angle, a.joints[1].angle, a.joints[2].angle, a.joints[3].angle)
+    rlPopMatrix()
+}
+
 // ── hydraulic cylinders ───────────────────────────────────────────────────
 // Drawn in WORLD space (DrawCylinderEx takes world endpoints), so they don't
 // share the matrix stack with draw_arm — we compute the anchor points from the

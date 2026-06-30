@@ -1,0 +1,227 @@
+// machin-demo-game-robotic-arm — 02d_arm.src
+// An ARM as data: base frame (position + yaw + optional rail), 5 joints, its own
+// gripper + FSM + current job + the station range it services. Pure (no extern),
+// value-in/value-out, so the whole per-arm controller is headless-testable and
+// the scene can hold N arms (a []Arm). The renderer (04_arm) consumes an Arm.
+//
+// kind: 0 = pedestal (fixed base), 1 = rail-mounted (base slides along world X).
+
+type Arm struct {
+    kind int
+    base Vec3  base_yaw float
+    rail float  rail_min float  rail_max float
+    joints []Joint  grip float  dgrip float
+    phase int  phase_t float  job int  to int
+    pick Vec3  place Vec3  target Vec3  roll_target float  acc float
+    serves_lo int  serves_hi int  park Vec3
+}
+
+// ── FSM phases ──────────────────────────────────────────────────────────────
+func P_IDLE() (n)       { n = 0 }
+func P_START() (n)      { n = 1 }
+func P_OVER_PICK() (n)  { n = 2 }
+func P_DESC_PICK() (n)  { n = 3 }
+func P_GRASP() (n)      { n = 4 }
+func P_LIFT() (n)       { n = 5 }
+func P_SCORE() (n)      { n = 6 }
+func P_OVER_PLACE() (n) { n = 7 }
+func P_DESC_PLACE() (n) { n = 8 }
+func P_RELEASE() (n)    { n = 9 }
+func P_RETRACT() (n)    { n = 10 }
+
+// ── tunables ────────────────────────────────────────────────────────────────
+func HOVER() (v)      { v = 0.70 }
+func REL_GAP() (v)    { v = 0.16 }
+func GRIP_RATE() (v)  { v = 3.0 }
+func ARRIVE_EPS() (v) { v = 0.08 }
+func PHYS_H() (v)     { v = 1.0 / 60.0 }
+func hold_grip() (v)  { v = grip_for_force(DOUGH_R(), GRIP_SAFE_F()) }
+func NEUTRAL() (p)    { p = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0} }
+
+// ── construction ────────────────────────────────────────────────────────────
+func mk_joints5() (js) {
+    js = []Joint{}
+    js = append(js, mk_joint(REST_J1()))
+    js = append(js, mk_joint(REST_J2()))
+    js = append(js, mk_joint(REST_J3()))
+    js = append(js, mk_joint(REST_J4()))
+    js = append(js, mk_joint(REST_J5()))
+}
+
+// a pedestal arm at the world origin servicing bin..oven (places into cool)
+func mk_pedestal_arm() (a) {
+    nz := Vec3{0.0, 0.0, 0.0}
+    a = Arm{0, nz, 0.0, 0.0, 0.0, 0.0, mk_joints5(), 1.0, 1.0,
+            P_IDLE(), 0.0, 0 - 1, 0, nz, nz, NEUTRAL(), 0.0, 0.0,
+            ST_BIN(), ST_COOL(), NEUTRAL()}
+}
+
+// ── frame transforms (world <-> the arm's mount frame) ─────────────────────
+func world_to_local(a, p) (q) {
+    dx := p.x - (a.base.x + a.rail)
+    dy := p.y - a.base.y
+    dz := p.z - a.base.z
+    ph := deg2rad(a.base_yaw)
+    q = Vec3{dx * cos(ph) - dz * sin(ph), dy, dx * sin(ph) + dz * cos(ph)}
+}
+
+func local_to_world(a, p) (q) {
+    ph := deg2rad(a.base_yaw)
+    wx := p.x * cos(ph) + p.z * sin(ph)
+    wz := 0.0 - p.x * sin(ph) + p.z * cos(ph)
+    q = Vec3{wx + a.base.x + a.rail, p.y + a.base.y, wz + a.base.z}
+}
+
+// gripper-tip in WORLD coords
+func arm_world_tip(a) (p) {
+    lt := fk_tip(a.joints[0].angle, a.joints[1].angle, a.joints[2].angle, a.joints[3].angle)
+    p = local_to_world(a, lt)
+}
+
+func arrived_arm(a, tip) (b) { b = vdist(tip, a.target) < ARRIVE_EPS() }
+
+// ── scheduler: most-advanced ready item within this arm's station range ─────
+func choose_job_for_arm(ds, lo, hi) (idx, found) {
+    best := 0 - 1
+    bestst := 0 - 1
+    i := 0
+    while i < len(ds) {
+        if ready_to_advance(ds[i]) {
+            st := ds[i].station
+            if st >= lo { if st < hi { if st > bestst { bestst = st  best = i } } }
+        }
+        i = i + 1
+    }
+    idx = best
+    found = false
+    if best >= 0 { found = true }
+}
+
+// ── physics: drive joints toward the (world) target, animate grip ──────────
+func step_joints5(js, t1, t2, t3, t4, t5, h) (out) {
+    out = js
+    tg := []float{}
+    tg = append(tg, t1)  tg = append(tg, t2)  tg = append(tg, t3)
+    tg = append(tg, t4)  tg = append(tg, t5)
+    i := 0
+    while i < 5 {
+        vmax := ACT_VMAX(i)
+        if i > 0 { if i < 4 { vmax = cyl_vmax(out[i].angle, cyl_spec(i)) } }
+        out[i] = joint_step(out[i], tg[i], h, vmax, ACT_AMAX(i), ACT_GAIN(i))
+        i = i + 1
+    }
+}
+
+func arm_drive(a, dt) (out) {
+    out = a
+    out.phase_t = a.phase_t + dt
+
+    // grip easing
+    g := a.grip
+    gr := GRIP_RATE() * dt
+    if a.dgrip > g { g = minf(g + gr, a.dgrip) }
+    if a.dgrip < g { g = maxf(g - gr, a.dgrip) }
+    out.grip = g
+
+    // IK in the arm's local frame, then fixed-timestep actuator integration
+    lt := world_to_local(a, a.target)
+    j1t, j2t, j3t, j4t, ok := ik_pick_continuous(lt, a.joints[2].angle)
+    js := a.joints
+    acc := a.acc + dt
+    h := PHYS_H()
+    steps := 0
+    while acc >= h {
+        js = step_joints5(js, j1t, j2t, j3t, j4t, a.roll_target, h)
+        acc = acc - h
+        steps = steps + 1
+        if steps > 8 { acc = 0.0 }
+    }
+    out.joints = js
+    out.acc = acc
+}
+
+// ── FSM ─────────────────────────────────────────────────────────────────────
+func arm_enter(a, ds, p) (out) {
+    out = a
+    out.phase = p
+    out.phase_t = 0.0
+    up := Vec3{0.0, HOVER(), 0.0}
+    rel := Vec3{0.0, REL_GAP(), 0.0}
+
+    if p == P_START() {
+        it := ds[a.job]
+        out.pick = it.pos
+        out.to = next_station(it.station)
+        out.place = station_slot_pos(out.to, a.job)
+        out.roll_target = item_heading(it.kind)
+        out = arm_enter(out, ds, P_OVER_PICK())
+        return
+    }
+    if p == P_IDLE()       { out.target = a.park              out.dgrip = 1.0  out.roll_target = 0.0 }
+    if p == P_OVER_PICK()  { out.target = vadd(out.pick, up)  out.dgrip = 1.0 }
+    if p == P_DESC_PICK()  { out.target = out.pick            out.dgrip = 1.0 }
+    if p == P_GRASP()      { out.target = out.pick            out.dgrip = hold_grip() }
+    if p == P_LIFT()       { out.target = vadd(out.pick, up)  out.dgrip = hold_grip() }
+    if p == P_SCORE()      { out.target = vadd(out.pick, up)  out.dgrip = hold_grip() }
+    if p == P_OVER_PLACE() { out.target = vadd(out.place, up) out.dgrip = hold_grip() }
+    if p == P_DESC_PLACE() { out.target = vadd(out.place, rel) out.dgrip = hold_grip() }
+    if p == P_RELEASE()    { out.target = vadd(out.place, rel) out.dgrip = 1.0 }
+    if p == P_RETRACT()    { out.target = vadd(out.place, up) out.dgrip = 1.0 }
+}
+
+// advance the FSM one frame; mutates ds (grasp/score/release/hold) in place
+func arm_fsm(a, ds, tip) (out) {
+    out = a
+
+    // keep a carried item glued to the gripper, oriented to the wrist roll
+    if a.job >= 0 { if ds[a.job].state == 1 {
+        ds[a.job] = dough_hold(ds[a.job], tip, a.grip, a.joints[4].angle)
+    } }
+
+    if a.phase == P_IDLE() {
+        idx, found := choose_job_for_arm(ds, a.serves_lo, a.serves_hi)
+        if found { out.job = idx  out = arm_enter(out, ds, P_START()) }
+    } else if a.phase == P_OVER_PICK() {
+        if arrived_arm(a, tip) { out = arm_enter(out, ds, P_DESC_PICK()) }
+    } else if a.phase == P_DESC_PICK() {
+        if arrived_arm(a, tip) { if a.phase_t > 0.2 { out = arm_enter(out, ds, P_GRASP()) } }
+    } else if a.phase == P_GRASP() {
+        if a.grip <= hold_grip() + 0.02 { if a.phase_t > 0.35 {
+            ds[a.job] = dough_grasp(ds[a.job])
+            out = arm_enter(out, ds, P_LIFT())
+        } }
+    } else if a.phase == P_LIFT() {
+        if arrived_arm(a, tip) {
+            if a.to == ST_OVEN() { out = arm_enter(out, ds, P_SCORE()) } else { out = arm_enter(out, ds, P_OVER_PLACE()) }
+        }
+    } else if a.phase == P_SCORE() {
+        if a.phase_t > 0.6 { ds[a.job] = dough_score(ds[a.job])  out = arm_enter(out, ds, P_OVER_PLACE()) }
+    } else if a.phase == P_OVER_PLACE() {
+        if arrived_arm(a, tip) { out = arm_enter(out, ds, P_DESC_PLACE()) }
+    } else if a.phase == P_DESC_PLACE() {
+        if arrived_arm(a, tip) { if a.phase_t > 0.2 { out = arm_enter(out, ds, P_RELEASE()) } }
+    } else if a.phase == P_RELEASE() {
+        if a.grip >= 0.85 { if a.phase_t > 0.2 {
+            ds[a.job] = dough_release(ds[a.job], a.to)
+            out = arm_enter(out, ds, P_RETRACT())
+        } }
+    } else if a.phase == P_RETRACT() {
+        if arrived_arm(a, tip) {
+            idx, found := choose_job_for_arm(ds, a.serves_lo, a.serves_hi)
+            if found { out.job = idx  out = arm_enter(out, ds, P_START()) } else { out.job = 0 - 1  out = arm_enter(out, ds, P_IDLE()) }
+        }
+    }
+}
+
+func phase_name(p) (s) {
+    s = "idle"
+    if p == P_OVER_PICK()  { s = "move to pick" }
+    if p == P_DESC_PICK()  { s = "descend / pick" }
+    if p == P_GRASP()      { s = "grasp" }
+    if p == P_LIFT()       { s = "lift" }
+    if p == P_SCORE()      { s = "score" }
+    if p == P_OVER_PLACE() { s = "carry / place" }
+    if p == P_DESC_PLACE() { s = "place" }
+    if p == P_RELEASE()    { s = "release" }
+    if p == P_RETRACT()    { s = "retract" }
+}

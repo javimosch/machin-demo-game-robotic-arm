@@ -256,6 +256,29 @@ func main() {
     }
     check("all station waypoints reachable", allreach)
 
+    // --- multi-arm core: frame transforms + per-arm scheduler ---
+    ped := mk_pedestal_arm()
+    wp := Vec3{1.5, 0.3, 0.5}
+    check("pedestal frame is identity", vapprox(world_to_local(ped, wp), wp, 0.0001))
+    check("pedestal world tip == fk_tip",
+          vapprox(arm_world_tip(ped), fk_tip(REST_J1(), REST_J2(), REST_J3(), REST_J4()), 0.0001))
+    // a mounted+yawed+railed arm: world<->local must round-trip
+    moved := ped
+    moved.base = Vec3{5.0, 0.0, 1.0}
+    moved.base_yaw = 90.0
+    moved.rail = 0.5
+    check("frame round-trips (offset+yaw+rail)",
+          vapprox(local_to_world(moved, world_to_local(moved, wp)), wp, 0.0001))
+    // per-arm scheduler honours the station range
+    arm_sched := []Dough{}
+    arm_sched = append(arm_sched, mk_item(0))   // raw in bin (ready)
+    arm_sched = append(arm_sched, ov)           // baked in oven (ready, from earlier)
+    aj, af := choose_job_for_arm(arm_sched, ST_BIN(), ST_COOL())
+    check("arm scheduler finds in-range job", af)
+    check("arm scheduler picks furthest-along", aj == 1)
+    aj2, af2 := choose_job_for_arm(arm_sched, ST_COOL(), ST_COOL() + 1)
+    check("arm scheduler respects range (none)", af2 == false)
+
     println("=== summary ===")
     println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
     if g_fail == 0 {
