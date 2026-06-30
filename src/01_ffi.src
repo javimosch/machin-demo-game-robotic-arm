@@ -1,0 +1,81 @@
+// machin-demo-game-robotic-arm — 01_ffi.src
+// raylib + rlgl FFI boundary, color/vec helpers, scalar helpers, world constants.
+//
+// Step 1: a static 3D scene — table, dough bin, baking tray, and a 4-DOF
+// articulated arm posed at rest (forward kinematics only). Orbit camera.
+
+// ── raylib FFI ──────────────────────────────────────────────────────────
+extern "raylib" {
+    header "raylib.h"
+    link "raylib" link "GL" link "m" link "pthread" link "dl" link "rt" link "X11"
+    cstruct Color { r u8 g u8 b u8 a u8 }
+    cstruct Vector3 { x f32 y f32 z f32 }
+    cstruct Camera3D { position Vector3 target Vector3 up Vector3 fovy f32 projection i32 }
+    fn InitWindow(i32, i32, string)
+    fn SetTargetFPS(i32)
+    fn WindowShouldClose() bool
+    fn BeginDrawing()
+    fn EndDrawing()
+    fn ClearBackground(Color)
+    fn BeginMode3D(Camera3D)
+    fn EndMode3D()
+    fn DrawCube(Vector3, f32, f32, f32, Color)
+    fn DrawCubeWires(Vector3, f32, f32, f32, Color)
+    fn DrawSphere(Vector3, f32, Color)
+    fn DrawCylinderEx(Vector3, Vector3, f32, f32, i32, Color)
+    fn DrawGrid(i32, f32)
+    fn DrawText(string, i32, i32, i32, Color)
+    fn MeasureText(string, i32) i32
+    fn IsKeyDown(i32) bool
+    fn IsKeyPressed(i32) bool
+    fn GetFrameTime() f32
+    fn CloseWindow()
+}
+
+// ── rlgl matrix stack (headerless: symbols live in libraylib.a) ───────────
+extern "rlgl" {
+    fn rlPushMatrix()
+    fn rlPopMatrix()
+    fn rlTranslatef(f32, f32, f32)
+    fn rlRotatef(f32, f32, f32, f32)
+    fn rlScalef(f32, f32, f32)
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────
+func v3(x, y, z) (v)        { v = Vector3{x, y, z} }
+func v3z() (v)              { v = Vector3{0.0, 0.0, 0.0} }
+func col(r, g, b) (c)       { c = Color{r, g, b, 255} }
+func col_a(r, g, b, a) (c)  { c = Color{r, g, b, a} }
+func clampf(v, lo, hi) (o)  { o = v  if o < lo { o = lo }  if o > hi { o = hi } }
+func absf(v) (o)            { o = v  if v < 0.0 { o = 0.0 - v } }
+func lerpf(a, b, t) (v)     { v = a + (b - a) * t }
+func minf(a, b) (o)         { o = a  if b < a { o = b } }
+func maxf(a, b) (o)         { o = a  if b > a { o = b } }
+
+// degrees <-> radians (native math builtins take radians)
+func deg2rad(d) (r) { r = d * pi() / 180.0 }
+func rad2deg(r) (d) { d = r * 180.0 / pi() }
+
+// ── window ──────────────────────────────────────────────────────────────
+func WIN_W() (n) { n = 1100 }
+func WIN_H() (n) { n = 700 }
+func TITLE() (s) { s = "machin robotic arm — bakery pick & place" }
+
+// ── palette ─────────────────────────────────────────────────────────────
+func C_BG() (c)        { c = col(24, 26, 32) }       // dark slate background
+func C_FLOOR() (c)     { c = col(40, 43, 52) }       // grid floor lines
+func C_TABLE() (c)     { c = col(120, 96, 70) }      // wooden table top
+func C_TABLE_LEG() (c) { c = col(86, 68, 50) }       // darker legs
+func C_BIN() (c)       { c = col(70, 78, 92) }       // steel bin
+func C_TRAY() (c)      { c = col(150, 150, 158) }    // baking tray
+func C_TRAY_RIM() (c)  { c = col(110, 110, 118) }    // tray rim
+func C_DOUGH() (c)     { c = col(225, 205, 165) }    // pale dough
+func C_BASE() (c)      { c = col(60, 64, 74) }       // arm base/column (steel)
+func C_ARM() (c)       { c = col(232, 138, 48) }     // industrial orange links
+func C_ARM_DK() (c)    { c = col(190, 110, 36) }     // darker orange (joints)
+func C_JOINT() (c)     { c = col(45, 48, 56) }       // joint housings
+func C_GRIP() (c)      { c = col(50, 54, 62) }       // gripper fingers
+func C_CYL() (c)       { c = col(150, 158, 168) }    // hydraulic cylinder barrel
+func C_ROD() (c)       { c = col(205, 210, 218) }    // chrome piston rod
+func C_WHITE() (c)     { c = col(235, 238, 244) }
+func C_DIM() (c)       { c = col(150, 156, 168) }

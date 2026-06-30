@@ -1,0 +1,31 @@
+// machin-demo-game-robotic-arm — 02_math3d.src
+// A small Vec3 module operating on raylib's Vector3 cstruct (value semantics).
+// Foundation for the IK + actuator layers; step 1 uses only a little of it.
+
+func vadd(a, b) (r)   { r = Vector3{a.x + b.x, a.y + b.y, a.z + b.z} }
+func vsub(a, b) (r)   { r = Vector3{a.x - b.x, a.y - b.y, a.z - b.z} }
+func vscale(a, s) (r) { r = Vector3{a.x * s, a.y * s, a.z * s} }
+func vdot(a, b) (d)   { d = a.x * b.x + a.y * b.y + a.z * b.z }
+
+func vcross(a, b) (r) {
+    r = Vector3{a.y * b.z - a.z * b.y,
+                a.z * b.x - a.x * b.z,
+                a.x * b.y - a.y * b.x}
+}
+
+func vlen(a) (n)  { n = sqrt(a.x * a.x + a.y * a.y + a.z * a.z) }
+
+func vnorm(a) (r) {
+    n := vlen(a)
+    if n < 0.000001 { r = Vector3{0.0, 0.0, 0.0} } else { r = vscale(a, 1.0 / n) }
+}
+
+func vdist(a, b) (n)     { n = vlen(vsub(a, b)) }
+func vlerp(a, b, t) (r)  { r = Vector3{lerpf(a.x, b.x, t), lerpf(a.y, b.y, t), lerpf(a.z, b.z, t)} }
+
+// horizontal (xz-plane) distance — handy for reach checks on a flat table
+func vdist_xz(a, b) (n) {
+    dx := a.x - b.x
+    dz := a.z - b.z
+    n = sqrt(dx * dx + dz * dz)
+}

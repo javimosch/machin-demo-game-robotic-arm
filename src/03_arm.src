@@ -1,0 +1,110 @@
+// machin-demo-game-robotic-arm — 03_arm.src
+// The 4-DOF articulated arm: geometry + forward-kinematics rendering.
+//
+// DOF (all angles in DEGREES for rlRotatef):
+//   j1  base yaw     — around local +Y
+//   j2  shoulder     — pitch around local +Z
+//   j3  elbow        — pitch around local +Z
+//   j4  wrist        — pitch around local +Z
+//   grip in [0,1]    — 0 = closed, 1 = open (not part of IK)
+//
+// Links extend along local +Y and are bent by the pitch joints; the whole
+// planar chain is swung by the base yaw. Step 1 draws a fixed rest pose.
+
+// ── geometry (world units) ────────────────────────────────────────────────
+func BASE_X() (v)   { v = 0.0 }
+func BASE_Z() (v)   { v = 0.0 }
+func PLINTH_H() (v) { v = 0.40 }   // bolted-down pedestal
+func COL_H() (v)    { v = 1.10 }   // rotating column up to the shoulder
+func L2() (v)       { v = 1.50 }   // upper arm
+func L3() (v)       { v = 1.30 }   // forearm
+func WR() (v)       { v = 0.35 }   // wrist stub
+func AW() (v)       { v = 0.40 }   // upper-arm width
+func AW2() (v)      { v = 0.34 }   // forearm width
+
+// shoulder world height (top of plinth + column) — used by IK & camera later
+func SHOULDER_Y() (v) { v = PLINTH_H() + COL_H() }
+
+// ── rest pose (degrees) ─────────────────────────────────────────────────
+func REST_J1() (v) { v = 25.0 }
+func REST_J2() (v) { v = 0.0 - 55.0 }
+func REST_J3() (v) { v = 75.0 }
+func REST_J4() (v) { v = 0.0 - 35.0 }
+func REST_GRIP() (v) { v = 0.6 }
+
+// ── primitive draws (in the current rlgl frame) ──────────────────────────
+func draw_joint(size) {
+    DrawCube(v3z(), size, size, size, C_JOINT())
+    DrawCubeWires(v3z(), size, size, size, C_ARM_DK())
+}
+
+// a box link of length L extending along local +Y from the current origin
+func draw_link(L, w, c) {
+    rlPushMatrix()
+    rlTranslatef(0.0, L / 2.0, 0.0)
+    DrawCube(v3z(), w, L, w, c)
+    DrawCubeWires(v3z(), w, L, w, C_ARM_DK())
+    rlPopMatrix()
+}
+
+// two-finger gripper at the current origin, opening along local X
+func draw_gripper(grip) {
+    DrawCube(v3z(), 0.60, 0.18, 0.50, C_GRIP())     // palm
+    gap := 0.12 + grip * 0.28
+    rlPushMatrix()
+    rlTranslatef(0.0 - gap, 0.28, 0.0)
+    DrawCube(v3z(), 0.12, 0.52, 0.40, C_GRIP())     // left finger
+    DrawCubeWires(v3z(), 0.12, 0.52, 0.40, C_JOINT())
+    rlPopMatrix()
+    rlPushMatrix()
+    rlTranslatef(gap, 0.28, 0.0)
+    DrawCube(v3z(), 0.12, 0.52, 0.40, C_GRIP())     // right finger
+    DrawCubeWires(v3z(), 0.12, 0.52, 0.40, C_JOINT())
+    rlPopMatrix()
+}
+
+// ── forward kinematics: draw the whole arm at the given joint angles ──────
+func draw_arm(j1, j2, j3, j4, grip) {
+    rlPushMatrix()
+    rlTranslatef(BASE_X(), 0.0, BASE_Z())
+
+    // bolted pedestal (does not rotate)
+    rlPushMatrix()
+    rlTranslatef(0.0, PLINTH_H() / 2.0, 0.0)
+    DrawCube(v3z(), 1.25, PLINTH_H(), 1.25, C_BASE())
+    DrawCubeWires(v3z(), 1.25, PLINTH_H(), 1.25, C_JOINT())
+    rlPopMatrix()
+
+    // rotating column — base yaw
+    rlTranslatef(0.0, PLINTH_H(), 0.0)
+    rlRotatef(j1, 0.0, 1.0, 0.0)
+    rlPushMatrix()
+    rlTranslatef(0.0, COL_H() / 2.0, 0.0)
+    DrawCube(v3z(), 0.72, COL_H(), 0.72, C_BASE())
+    DrawCubeWires(v3z(), 0.72, COL_H(), 0.72, C_JOINT())
+    rlPopMatrix()
+
+    // shoulder
+    rlTranslatef(0.0, COL_H(), 0.0)
+    draw_joint(0.58)
+    rlRotatef(j2, 0.0, 0.0, 1.0)
+    draw_link(L2(), AW(), C_ARM())
+
+    // elbow
+    rlTranslatef(0.0, L2(), 0.0)
+    draw_joint(0.50)
+    rlRotatef(j3, 0.0, 0.0, 1.0)
+    draw_link(L3(), AW2(), C_ARM())
+
+    // wrist
+    rlTranslatef(0.0, L3(), 0.0)
+    draw_joint(0.42)
+    rlRotatef(j4, 0.0, 0.0, 1.0)
+    draw_link(WR(), 0.30, C_ARM_DK())
+
+    // gripper
+    rlTranslatef(0.0, WR(), 0.0)
+    draw_gripper(grip)
+
+    rlPopMatrix()
+}

@@ -1,0 +1,129 @@
+// machin-demo-game-robotic-arm — 04_scene.src
+// The static workcell: floor grid, table, dough bin (with dough balls),
+// and the baking tray with its slot grid. Table top surface is the y=0 plane;
+// the arm pedestal, bin, and tray all sit on it.
+
+func FLOOR_Y() (v)   { v = 0.0 - 1.8 }
+func TABLE_W() (v)   { v = 6.0 }    // x extent
+func TABLE_D() (v)   { v = 4.0 }    // z extent
+func TABLE_TH() (v)  { v = 0.20 }
+
+// bin & tray placement (centers, on the table top)
+func BIN_X() (v)   { v = 0.0 - 2.0 }
+func BIN_Z() (v)   { v = 0.40 }
+func TRAY_X() (v)  { v = 2.0 }
+func TRAY_Z() (v)  { v = 0.0 }
+
+func DOUGH_R() (v) { v = 0.24 }
+
+// ── floor ─────────────────────────────────────────────────────────────────
+func draw_floor() {
+    rlPushMatrix()
+    rlTranslatef(0.0, FLOOR_Y(), 0.0)
+    DrawGrid(40, 1.0)
+    rlPopMatrix()
+}
+
+// ── table ─────────────────────────────────────────────────────────────────
+func draw_leg(x, z) {
+    h := 0.0 - FLOOR_Y() - TABLE_TH()   // from floor up to table underside
+    cy := FLOOR_Y() + h / 2.0
+    rlPushMatrix()
+    rlTranslatef(x, cy, z)
+    DrawCube(v3z(), 0.30, h, 0.30, C_TABLE_LEG())
+    rlPopMatrix()
+}
+
+func draw_table() {
+    // top slab, top surface flush with y=0
+    rlPushMatrix()
+    rlTranslatef(0.0, 0.0 - TABLE_TH() / 2.0, 0.0)
+    DrawCube(v3z(), TABLE_W(), TABLE_TH(), TABLE_D(), C_TABLE())
+    DrawCubeWires(v3z(), TABLE_W(), TABLE_TH(), TABLE_D(), C_TABLE_LEG())
+    rlPopMatrix()
+    // legs, inset from corners
+    ix := TABLE_W() / 2.0 - 0.4
+    iz := TABLE_D() / 2.0 - 0.4
+    draw_leg(0.0 - ix, 0.0 - iz)
+    draw_leg(ix, 0.0 - iz)
+    draw_leg(0.0 - ix, iz)
+    draw_leg(ix, iz)
+}
+
+// ── dough bin ──────────────────────────────────────────────────────────────
+func draw_bin() {
+    bx := BIN_X()
+    bz := BIN_Z()
+    w := 1.4
+    d := 1.4
+    wall := 0.45
+    th := 0.06
+    // base slab
+    rlPushMatrix()
+    rlTranslatef(bx, 0.04, bz)
+    DrawCube(v3z(), w, 0.08, d, C_BIN())
+    rlPopMatrix()
+    // four walls
+    cy := wall / 2.0
+    rlPushMatrix() rlTranslatef(bx, cy, bz - d / 2.0) DrawCube(v3z(), w, wall, th, C_BIN()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(bx, cy, bz + d / 2.0) DrawCube(v3z(), w, wall, th, C_BIN()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(bx - w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
+    // dough balls resting inside (a loose 2x2 cluster)
+    r := DOUGH_R()
+    draw_dough(bx - 0.32, bz - 0.30)
+    draw_dough(bx + 0.30, bz - 0.28)
+    draw_dough(bx - 0.28, bz + 0.32)
+    draw_dough(bx + 0.34, bz + 0.30)
+}
+
+func draw_dough(x, z) {
+    rlPushMatrix()
+    rlTranslatef(x, DOUGH_R(), z)
+    DrawSphere(v3z(), DOUGH_R(), C_DOUGH())
+    rlPopMatrix()
+}
+
+// ── baking tray ─────────────────────────────────────────────────────────────
+func draw_tray() {
+    tx := TRAY_X()
+    tz := TRAY_Z()
+    w := 1.8
+    d := 2.6
+    // tray floor
+    rlPushMatrix()
+    rlTranslatef(tx, 0.03, tz)
+    DrawCube(v3z(), w, 0.06, d, C_TRAY())
+    rlPopMatrix()
+    // thin rim
+    rim := 0.10
+    cy := rim / 2.0 + 0.06
+    th := 0.05
+    rlPushMatrix() rlTranslatef(tx, cy, tz - d / 2.0) DrawCube(v3z(), w, rim, th, C_TRAY_RIM()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(tx, cy, tz + d / 2.0) DrawCube(v3z(), w, rim, th, C_TRAY_RIM()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(tx - w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(tx + w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
+    // 2x3 slot markers (where dough will be placed)
+    draw_slot_grid(tx, tz)
+}
+
+func draw_slot_grid(tx, tz) {
+    cols := 2
+    rows := 3
+    sx := 0.55
+    sz := 0.72
+    ci := 0
+    while ci < cols {
+        ri := 0
+        while ri < rows {
+            ox := (float(ci) - 0.5) * sx
+            oz := (float(ri) - 1.0) * sz
+            rlPushMatrix()
+            rlTranslatef(tx + ox, 0.065, tz + oz)
+            DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
+            rlPopMatrix()
+            ri = ri + 1
+        }
+        ci = ci + 1
+    }
+}

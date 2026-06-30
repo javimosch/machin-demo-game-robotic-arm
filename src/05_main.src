@@ -1,0 +1,49 @@
+// machin-demo-game-robotic-arm — 05_main.src
+// Step 1 entry point: a slowly-orbiting camera over the static workcell with
+// the arm posed at rest. No simulation yet — this validates the FFI, the FK
+// rig, the scene, and the build pipeline.
+
+var cam_angle = 0.0
+
+func draw_hud() {
+    DrawText("MACHIN ROBOTIC ARM  —  step 1: static workcell (FK rest pose)", 16, 14, 20, C_WHITE())
+    DrawText("4-DOF articulated arm   |   dough bin -> baking tray   |   orbiting camera",
+             16, 42, 16, C_DIM())
+    line := "rest pose (deg)   J1 " + str(REST_J1()) + "   J2 " + str(REST_J2())
+    line = line + "   J3 " + str(REST_J3()) + "   J4 " + str(REST_J4())
+    DrawText(line, 16, WIN_H() - 58, 16, C_DIM())
+    DrawText("Esc: quit", 16, WIN_H() - 32, 16, C_DIM())
+}
+
+func main() {
+    InitWindow(WIN_W(), WIN_H(), TITLE())
+    SetTargetFPS(60)
+
+    while WindowShouldClose() == false {
+        dt := GetFrameTime()
+        cam_angle = cam_angle + dt * 0.25   // slow auto-orbit
+
+        cx := sin(cam_angle) * 9.0
+        cz := cos(cam_angle) * 9.0
+        cam := Camera3D{Vector3{cx, 6.0, cz},
+                        Vector3{0.0, 1.2, 0.0},
+                        Vector3{0.0, 1.0, 0.0},
+                        45.0, 0}
+
+        BeginDrawing()
+        ClearBackground(C_BG())
+
+        BeginMode3D(cam)
+        draw_floor()
+        draw_table()
+        draw_bin()
+        draw_tray()
+        draw_arm(REST_J1(), REST_J2(), REST_J3(), REST_J4(), REST_GRIP())
+        EndMode3D()
+
+        draw_hud()
+        EndDrawing()
+    }
+
+    CloseWindow()
+}
