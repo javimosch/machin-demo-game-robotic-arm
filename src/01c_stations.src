@@ -1,0 +1,59 @@
+// machin-demo-game-robotic-arm — 01c_stations.src
+// The bakery production line as a set of stations the arm routes items through:
+//   BIN (raw source) -> PROOF (rise, timed) -> OVEN (bake, timed) -> COOL (done)
+// Pure (no extern), headless-tested. Each item keeps a fixed slot index and
+// occupies that slot at whichever station it currently sits in, so routing never
+// needs occupancy bookkeeping.
+
+func ST_BIN() (n)   { n = 0 }
+func ST_PROOF() (n) { n = 1 }
+func ST_OVEN() (n)  { n = 2 }
+func ST_COOL() (n)  { n = 3 }
+func N_STATIONS() (n) { n = 4 }
+
+func next_station(st) (n) { n = st + 1 }
+func is_last_station(st) (b) { b = false  if st == ST_COOL() { b = true } }
+
+// station center on the table top (corners around the arm, all within reach)
+func station_center(st) (p) {
+    p = Vec3{0.0 - 1.9, 0.0, 0.0 - 0.9}              // BIN: back-left
+    if st == ST_PROOF() { p = Vec3{0.0 - 1.9, 0.0, 0.9} }   // front-left
+    if st == ST_OVEN()  { p = Vec3{1.9, 0.0, 0.0 - 0.9} }   // back-right
+    if st == ST_COOL()  { p = Vec3{1.9, 0.0, 0.9} }         // front-right
+}
+
+// a 2x2 grid of item slots within a station
+func station_slot_xz(st, k) (x, z) {
+    c := station_center(st)
+    sp := 0.46
+    ci := k % 2
+    ri := k / 2
+    x = c.x + (float(ci) - 0.5) * sp
+    z = c.z + (float(ri) - 0.5) * sp
+}
+
+// world rest position (sphere center) of item slot k at a station
+func station_slot_pos(st, k) (p) {
+    x, z := station_slot_xz(st, k)
+    p = Vec3{x, DOUGH_REST_TRAY(), z}
+}
+
+// process duration (seconds) for a station; 0 = instantaneous (bin/cool)
+func proc_dur(st) (d) {
+    d = 0.0
+    if st == ST_PROOF() { d = 2.5 }
+    if st == ST_OVEN()  { d = 3.5 }
+}
+
+func is_process_station(st) (b) {
+    b = false
+    if st == ST_PROOF() { b = true }
+    if st == ST_OVEN()  { b = true }
+}
+
+func station_name(st) (s) {
+    s = "bin"
+    if st == ST_PROOF() { s = "proof" }
+    if st == ST_OVEN()  { s = "oven" }
+    if st == ST_COOL()  { s = "cool" }
+}

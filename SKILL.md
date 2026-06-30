@@ -68,6 +68,24 @@ robot experiment. Three pillars: kinematics (FK + analytic IK), kinetics
   / `task_step`, 10 phases). Grasped ball glued to `fk_tip`; released ball falls
   and settles golden in its slot; loops + resets. **56 headless tests pass.**
   Verified by screenshot across a full cycle.
+- **Step 6 ✅** grip-force control + dough deformation (gentle handling: grip to a
+  force, squish, spoil).
+- **Step 7 ✅** wrist roll (5th DOF) + baguettes (oriented payloads via
+  `DrawCapsule`).
+- **Step 8 ✅** production line: bin→proof→oven→cool stations + routing scheduler
+  (`choose_job`), timed proof-rise + oven-bake, scoring. Pure logic in
+  `01c_stations.src` + `02c_task.src`.
+- **Step 9 ✅** conveyor feed (animated) + KPI HUD (throughput/min, uptime, baked
+  count, rejects). **90 headless tests pass.**
+
+## Verifying when the WM hides the window
+
+The dev machine is multi-workspace and actively used, so a launched game window
+often lands on another workspace (root screenshots miss it) and headless-GPU
+screenshots can hang. Reliable trick: temporarily add `fn TakeScreenshot(string)`
+to the raylib extern and a one-shot `if cam_a > T { TakeScreenshot("cap.png") }`
+in the loop — the game writes its own framebuffer to disk regardless of
+workspace. Revert the probe before committing.
 
 ## Hydraulics notes
 

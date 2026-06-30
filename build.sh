@@ -19,7 +19,7 @@ MACHIN="${MACHIN:-machin}"
 BIN=robotic-arm
 COMBINED=app.mfl
 
-SRCS="src/00_math.src src/01_armspec.src src/01b_layout.src src/02_kinematics.src src/02b_hydraulics.src src/02c_task.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
+SRCS="src/00_math.src src/01_armspec.src src/01b_layout.src src/01c_stations.src src/02_kinematics.src src/02b_hydraulics.src src/02c_task.src src/03_ffi.src src/04_arm.src src/05_scene.src src/06_main.src"
 
 have_system_raylib() {
     pkg-config --exists raylib 2>/dev/null && return 0

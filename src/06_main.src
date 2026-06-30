@@ -1,63 +1,61 @@
 // machin-demo-game-robotic-arm — 06_main.src
-// Step 5: the autonomous bakery loop. A pick-and-place state machine drives the
-// arm to lift dough balls from the bin and set them, one per slot, on the baking
-// tray — grasp (ball glued to the gripper), release (ball falls under gravity
-// and settles in its slot), repeat until the tray is full, then reset and loop.
-// All four joints are flow-limited hydraulic actuators; IK keeps the gripper
-// pointing straight down at every waypoint.
+// The bakery production line. A routing scheduler picks the most-advanced ready
+// item and the arm carries it one hop along the pipeline
+//   BIN (raw) -> PROOF (rise) -> [score] -> OVEN (bake) -> COOL (done)
+// Proofing/baking are timed processes that run while items rest at a station;
+// the arm services hops between them. Loops once every item has cooled.
 
-// ── pick-and-place phases ─────────────────────────────────────────────────
-func P_START() (n)      { n = 0 }
-func P_OVER_PICK() (n)  { n = 1 }
-func P_DESC_PICK() (n)  { n = 2 }
-func P_GRASP() (n)      { n = 3 }
-func P_LIFT() (n)       { n = 4 }
-func P_OVER_PLACE() (n) { n = 5 }
-func P_DESC_PLACE() (n) { n = 6 }
-func P_RELEASE() (n)    { n = 7 }
-func P_RETRACT() (n)    { n = 8 }
-func P_RESET() (n)      { n = 9 }
+// ── phases ────────────────────────────────────────────────────────────────
+func P_IDLE() (n)       { n = 0 }
+func P_START() (n)      { n = 1 }
+func P_OVER_PICK() (n)  { n = 2 }
+func P_DESC_PICK() (n)  { n = 3 }
+func P_GRASP() (n)      { n = 4 }
+func P_LIFT() (n)       { n = 5 }
+func P_SCORE() (n)      { n = 6 }
+func P_OVER_PLACE() (n) { n = 7 }
+func P_DESC_PLACE() (n) { n = 8 }
+func P_RELEASE() (n)    { n = 9 }
+func P_RETRACT() (n)    { n = 10 }
 
-func HOVER() (v)        { v = 0.70 }   // safe height above pick/place
-func REL_GAP() (v)      { v = 0.16 }   // release a little above the slot -> drop
-// the gentle holding opening: grip to a safe FORCE, not all the way shut
-func hold_grip() (v) { v = grip_for_force(DOUGH_R(), GRIP_SAFE_F()) }
-func GRIP_RATE() (v)    { v = 3.0 }    // gripper open/close speed (units/s)
-func ARRIVE_EPS() (v)   { v = 0.08 }   // tip-on-target tolerance
+func HOVER() (v)       { v = 0.70 }
+func REL_GAP() (v)     { v = 0.16 }
+func hold_grip() (v)   { v = grip_for_force(DOUGH_R(), GRIP_SAFE_F()) }
+func GRIP_RATE() (v)   { v = 3.0 }
+func ARRIVE_EPS() (v)  { v = 0.08 }
 
-// ── live state (package globals persist across frames) ────────────────────
+// ── live state ──────────────────────────────────────────────────────────────
 var g_joints = []Joint{}
-var g_jinit = 0
 var g_acc = 0.0
 var cam_a = 0.0
+var g_elapsed = 0.0
 
 var g_dough = []Dough{}
 var g_phase = 0
 var g_phase_t = 0.0
-var g_cur = 0          // dough index being handled
-var g_slot = 0         // next tray slot to fill
-var g_grip = 1.0       // animated gripper opening
-var g_target = Vec3{2.0, 1.5, 0.0}
-var g_dgrip = 1.0      // desired gripper opening for the current phase
+var g_job = 0 - 1          // item index currently being moved (-1 = none)
+var g_to = 0              // destination station for the current hop
+var g_grip = 1.0
+var g_dgrip = 1.0
 var g_pick = Vec3{0.0, 0.0, 0.0}
 var g_place = Vec3{0.0, 0.0, 0.0}
-var g_cycles = 0       // completed full trays
-var g_roll_target = 0.0   // desired wrist roll (deg) for the current item
+var g_target = Vec3{0.0, 2.5, 0.0}
+var g_roll_target = 0.0
+var g_cycles = 0
 
 func PHYS_H() (v) { v = 1.0 / 60.0 }
 func r1(x) (o) { o = round(x * 10.0) / 10.0 }
+func NEUTRAL() (p) { p = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0} }
 
 func init_joints() {
     g_joints = append(g_joints, mk_joint(REST_J1()))
     g_joints = append(g_joints, mk_joint(REST_J2()))
     g_joints = append(g_joints, mk_joint(REST_J3()))
     g_joints = append(g_joints, mk_joint(REST_J4()))
-    g_joints = append(g_joints, mk_joint(REST_J5()))   // wrist roll
-    g_jinit = 1
+    g_joints = append(g_joints, mk_joint(REST_J5()))
 }
 
-// max angular speed: base yaw (0) + wrist roll (4) are rotary actuators; the
-// three pitch joints (1,2,3) are flow-limited by their hydraulic cylinder
+// base yaw (0) + wrist roll (4) are rotary; pitch joints (1,2,3) are hydraulic
 func joint_vmax(i, angle) (v) {
     v = ACT_VMAX(i)
     if i > 0 { if i < 4 { v = cyl_vmax(angle, cyl_spec(i)) } }
@@ -65,11 +63,8 @@ func joint_vmax(i, angle) (v) {
 
 func step_joints(j1t, j2t, j3t, j4t, j5t, h) {
     tg := []float{}
-    tg = append(tg, j1t)
-    tg = append(tg, j2t)
-    tg = append(tg, j3t)
-    tg = append(tg, j4t)
-    tg = append(tg, j5t)
+    tg = append(tg, j1t)  tg = append(tg, j2t)  tg = append(tg, j3t)
+    tg = append(tg, j4t)  tg = append(tg, j5t)
     i := 0
     while i < 5 {
         vmax := joint_vmax(i, g_joints[i].angle)
@@ -86,100 +81,110 @@ func enter_phase(p) {
     rel := Vec3{0.0, REL_GAP(), 0.0}
 
     if p == P_START() {
-        d0 := g_dough[g_cur]
-        g_dough[g_cur] = Dough{d0.pos, d0.vel, d0.state, g_slot, d0.squish, d0.spoiled, d0.kind, d0.heading}
-        g_pick = g_dough[g_cur].pos
-        g_place = slot_pos(g_slot)
-        g_roll_target = item_heading(d0.kind)   // pre-orient the wrist for this item
+        it := g_dough[g_job]
+        g_pick = it.pos
+        g_to = next_station(it.station)
+        g_place = station_slot_pos(g_to, g_job)
+        g_roll_target = item_heading(it.kind)
         enter_phase(P_OVER_PICK())
         return
     }
+    if p == P_IDLE()       { g_target = NEUTRAL()          g_dgrip = 1.0  g_roll_target = 0.0 }
     if p == P_OVER_PICK()  { g_target = vadd(g_pick, up)   g_dgrip = 1.0 }
     if p == P_DESC_PICK()  { g_target = g_pick             g_dgrip = 1.0 }
     if p == P_GRASP()      { g_target = g_pick             g_dgrip = hold_grip() }
     if p == P_LIFT()       { g_target = vadd(g_pick, up)   g_dgrip = hold_grip() }
+    if p == P_SCORE()      { g_target = vadd(g_pick, up)   g_dgrip = hold_grip() }
     if p == P_OVER_PLACE() { g_target = vadd(g_place, up)  g_dgrip = hold_grip() }
     if p == P_DESC_PLACE() { g_target = vadd(g_place, rel) g_dgrip = hold_grip() }
     if p == P_RELEASE()    { g_target = vadd(g_place, rel) g_dgrip = 1.0 }
     if p == P_RETRACT()    { g_target = vadd(g_place, up)  g_dgrip = 1.0 }
-    if p == P_RESET()      { g_target = Vec3{0.0, SHOULDER_Y() + 1.0, 0.0}  g_dgrip = 1.0  g_roll_target = 0.0 }
 }
 
 func arrived(tip) (b) { b = vdist(tip, g_target) < ARRIVE_EPS() }
 
-func advance() {
-    g_cur = g_cur + 1
-    g_slot = g_slot + 1
-    if g_cur >= N_DOUGH() {
-        g_cycles = g_cycles + 1
-        enter_phase(P_RESET())
-    } else {
+// pick the next hop, or fall back to idle / reset
+func next_job() {
+    idx, found := choose_job(g_dough)
+    if found {
+        g_job = idx
         enter_phase(P_START())
+    } else {
+        g_job = 0 - 1
+        enter_phase(P_IDLE())
     }
 }
 
 func task_step(tip) {
-    if g_phase == P_OVER_PICK() {
+    if g_phase == P_IDLE() {
+        idx, found := choose_job(g_dough)
+        if found {
+            g_job = idx
+            enter_phase(P_START())
+        } else {
+            if all_cooled(g_dough) {
+                if g_phase_t > 1.6 {
+                    g_dough = reset_dough(g_dough)
+                    g_cycles = g_cycles + 1
+                }
+            }
+        }
+    } else if g_phase == P_OVER_PICK() {
         if arrived(tip) { enter_phase(P_DESC_PICK()) }
     } else if g_phase == P_DESC_PICK() {
         if arrived(tip) { if g_phase_t > 0.2 { enter_phase(P_GRASP()) } }
     } else if g_phase == P_GRASP() {
         if g_grip <= hold_grip() + 0.02 { if g_phase_t > 0.35 {
-            g_dough[g_cur] = dough_grasp(g_dough[g_cur])
+            g_dough[g_job] = dough_grasp(g_dough[g_job])
             enter_phase(P_LIFT())
         } }
     } else if g_phase == P_LIFT() {
-        if arrived(tip) { enter_phase(P_OVER_PLACE()) }
+        if arrived(tip) {
+            if g_to == ST_OVEN() { enter_phase(P_SCORE()) } else { enter_phase(P_OVER_PLACE()) }
+        }
+    } else if g_phase == P_SCORE() {
+        if g_phase_t > 0.6 {
+            g_dough[g_job] = dough_score(g_dough[g_job])
+            enter_phase(P_OVER_PLACE())
+        }
     } else if g_phase == P_OVER_PLACE() {
         if arrived(tip) { enter_phase(P_DESC_PLACE()) }
     } else if g_phase == P_DESC_PLACE() {
         if arrived(tip) { if g_phase_t > 0.2 { enter_phase(P_RELEASE()) } }
     } else if g_phase == P_RELEASE() {
         if g_grip >= 0.85 { if g_phase_t > 0.2 {
-            g_dough[g_cur] = dough_release(g_dough[g_cur])
+            g_dough[g_job] = dough_release(g_dough[g_job], g_to)
             enter_phase(P_RETRACT())
         } }
     } else if g_phase == P_RETRACT() {
-        if arrived(tip) { advance() }
-    } else if g_phase == P_RESET() {
-        if g_phase_t > 1.2 {
-            g_dough = reset_dough(g_dough)
-            g_cur = 0
-            g_slot = 0
-            enter_phase(P_START())
-        }
+        if arrived(tip) { next_job() }
     }
 }
 
 func init_task() {
     g_dough = mk_dough_set()
-    g_cur = 0
-    g_slot = 0
+    g_job = 0 - 1
     g_grip = 1.0
-    enter_phase(P_START())
+    enter_phase(P_IDLE())
 }
 
-// ── HUD ────────────────────────────────────────────────────────────────────
+// ── HUD ──────────────────────────────────────────────────────────────────────
 func phase_name(p) (s) {
-    s = "start"
-    if p == P_OVER_PICK()  { s = "move over bin" }
-    if p == P_DESC_PICK()  { s = "descend" }
+    s = "idle"
+    if p == P_OVER_PICK()  { s = "move to " + station_name(g_dough_station_of_job()) }
+    if p == P_DESC_PICK()  { s = "descend / pick" }
     if p == P_GRASP()      { s = "grasp" }
     if p == P_LIFT()       { s = "lift" }
-    if p == P_OVER_PLACE() { s = "move over tray" }
-    if p == P_DESC_PLACE() { s = "descend" }
+    if p == P_SCORE()      { s = "score" }
+    if p == P_OVER_PLACE() { s = "carry to " + station_name(g_to) }
+    if p == P_DESC_PLACE() { s = "place" }
     if p == P_RELEASE()    { s = "release" }
     if p == P_RETRACT()    { s = "retract" }
-    if p == P_RESET()      { s = "tray full - reset" }
 }
 
-func count_placed() (n) {
-    n = 0
-    i := 0
-    while i < len(g_dough) {
-        if g_dough[i].state == 3 { n = n + 1 }
-        i = i + 1
-    }
+func g_dough_station_of_job() (st) {
+    st = ST_BIN()
+    if g_job >= 0 { st = g_dough[g_job].station }
 }
 
 func count_spoiled() (n) {
@@ -192,28 +197,30 @@ func count_spoiled() (n) {
 }
 
 func draw_hud() {
-    DrawText("MACHIN ROBOTIC ARM  —  step 7: 5-DOF wrist roll + baguettes",
+    DrawText("MACHIN ROBOTIC ARM  —  step 9: conveyor-fed bakery line + KPIs",
              16, 14, 20, C_WHITE())
-    DrawText("5-DOF arm  |  grip-force control  |  wrist roll orients baguettes into the tray",
+    DrawText("5-DOF arm  |  conveyor feed  |  proof -> score -> oven -> cool  |  live throughput",
              16, 42, 16, C_DIM())
 
-    a1 := g_joints[0].angle
-    a2 := g_joints[1].angle
-    a3 := g_joints[2].angle
-    a4 := g_joints[3].angle
+    sl := "phase   " + phase_name(g_phase)
+    DrawText(sl, 16, 68, 16, C_DIM())
 
-    gf := grip_force(g_grip, DOUGH_R())
-    gl := "grip   force " + str(r1(gf)) + " N   (safe " + str(r1(GRIP_SAFE_F()))
-    gl = gl + ", crush > " + str(r1(GRIP_SPOIL_F())) + ")   spoiled " + str(count_spoiled())
-    DrawText(gl, 16, 68, 16, C_DIM())
+    // KPIs: total finished loaves + throughput per minute + uptime + rejects
+    done := g_cycles * N_DOUGH() + count_at(g_dough, ST_COOL())
+    mins := maxf(g_elapsed / 60.0, 0.0001)
+    rate := float(done) / mins
+    kp := "KPI   baked " + str(done) + "   throughput " + str(r1(rate)) + "/min"
+    kp = kp + "   uptime " + str(int(g_elapsed)) + "s   trays " + str(g_cycles) + "   spoiled " + str(count_spoiled())
+    DrawText(kp, 16, WIN_H() - 110, 18, C_WHITE())
 
-    sl := "phase   " + phase_name(g_phase) + "      placed " + str(count_placed()) + " / " + str(N_SLOTS())
-    sl = sl + "      trays done " + str(g_cycles)
-    DrawText(sl, 16, WIN_H() - 110, 16, C_WHITE())
+    // per-station counts (the pipeline at a glance)
+    kl := "pipeline   bin " + str(count_at(g_dough, ST_BIN()))
+    kl = kl + "   proof " + str(count_at(g_dough, ST_PROOF()))
+    kl = kl + "   oven " + str(count_at(g_dough, ST_OVEN()))
+    kl = kl + "   cool " + str(count_at(g_dough, ST_COOL()))
+    DrawText(kl, 16, WIN_H() - 84, 16, C_DIM())
 
-    jl := "joints   J1 " + str(r1(a1)) + "   J2 " + str(r1(a2)) + "   J3 " + str(r1(a3)) + "   J4 " + str(r1(a4))
-    DrawText(jl, 16, WIN_H() - 84, 16, C_DIM())
-
+    a1 := g_joints[0].angle  a2 := g_joints[1].angle  a3 := g_joints[2].angle  a4 := g_joints[3].angle
     pl := "pressure (bar)   SH " + str(r1(cyl_pressure(1, a1, a2, a3, a4)))
     pl = pl + "   EL " + str(r1(cyl_pressure(2, a1, a2, a3, a4)))
     pl = pl + "   WR " + str(r1(cyl_pressure(3, a1, a2, a3, a4)))
@@ -226,9 +233,7 @@ func draw_all_dough() {
     i := 0
     while i < len(g_dough) {
         d := g_dough[i]
-        placed := false
-        if d.state == 3 { placed = true }
-        draw_dough(d.pos, placed, d.squish, d.spoiled, d.kind, d.heading)
+        draw_dough(d.pos, d.kind, d.heading, d.squish, d.risen, d.baked, d.spoiled)
         i = i + 1
     }
 }
@@ -242,16 +247,13 @@ func main() {
     while WindowShouldClose() == false {
         dt := GetFrameTime()
         cam_a = cam_a + dt * 0.12
+        g_elapsed = g_elapsed + dt
         g_phase_t = g_phase_t + dt
 
-        // animate gripper toward the phase's desired opening
         gr := GRIP_RATE() * dt
         if g_dgrip > g_grip { g_grip = minf(g_grip + gr, g_dgrip) }
         if g_dgrip < g_grip { g_grip = maxf(g_grip - gr, g_dgrip) }
 
-        // IK for the current waypoint (continuity-preserving: pass the current
-        // elbow angle so the branch doesn't flip gratuitously), then drive the
-        // joints (fixed 60 Hz)
         j1t, j2t, j3t, j4t, ok := ik_pick_continuous(g_target, g_joints[2].angle)
         g_acc = g_acc + dt
         h := PHYS_H()
@@ -263,45 +265,35 @@ func main() {
             if steps > 8 { g_acc = 0.0 }
         }
 
-        a1 := g_joints[0].angle
-        a2 := g_joints[1].angle
-        a3 := g_joints[2].angle
-        a4 := g_joints[3].angle
-        a5 := g_joints[4].angle
+        a1 := g_joints[0].angle  a2 := g_joints[1].angle  a3 := g_joints[2].angle
+        a4 := g_joints[3].angle  a5 := g_joints[4].angle
         tip := fk_tip(a1, a2, a3, a4)
 
-        // keep a grasped item glued to the gripper, oriented to the wrist roll;
-        // settle any falling items
-        if g_dough[g_cur].state == 1 { g_dough[g_cur] = dough_hold(g_dough[g_cur], tip, g_grip, a5) }
+        // glue the carried item to the gripper; settle falls; advance processes
+        if g_job >= 0 { if g_dough[g_job].state == 1 { g_dough[g_job] = dough_hold(g_dough[g_job], tip, g_grip, a5) } }
         i := 0
         while i < len(g_dough) {
             g_dough[i] = dough_fall(g_dough[i], dt)
+            g_dough[i] = item_process(g_dough[i], dt)
             i = i + 1
         }
 
-        // advance the pick-and-place state machine
         task_step(tip)
 
-        cx := sin(cam_a) * 9.0
-        cz := cos(cam_a) * 9.0
-        cam := Camera3D{Vector3{cx, 6.0, cz},
-                        Vector3{0.0, 1.2, 0.0},
-                        Vector3{0.0, 1.0, 0.0},
-                        45.0, 0}
+        cx := sin(cam_a) * 9.5
+        cz := cos(cam_a) * 9.5
+        cam := Camera3D{Vector3{cx, 6.5, cz}, Vector3{0.0, 1.0, 0.0}, Vector3{0.0, 1.0, 0.0}, 45.0, 0}
 
         BeginDrawing()
         ClearBackground(C_BG())
-
         BeginMode3D(cam)
         draw_floor()
         draw_table()
-        draw_bin()
-        draw_tray()
+        draw_stations(g_elapsed)
         draw_all_dough()
         draw_arm(a1, a2, a3, a4, a5, g_grip)
         draw_hydraulics(a1, a2, a3, a4)
         EndMode3D()
-
         draw_hud()
         EndDrawing()
     }

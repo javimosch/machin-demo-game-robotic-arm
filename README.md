@@ -56,10 +56,15 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   each baguette lengthwise into its slot. Roll is a rotary actuator (base yaw is
   too); the three pitch joints stay hydraulic. **81 headless tests pass.**
 
-Roadmap (Track 2 — bakery production line):
-
-8. Production stations: score → proof → oven → cool.
-9. Conveyor feed + KPI panel.
+- **Step 8 — production line.** ✅ Four stations — **bin → proof → oven → cool** —
+  with a routing scheduler that moves the most-advanced ready item one hop at a
+  time. Proofing and baking are **timed processes** that run while items rest
+  (dough visibly **rises** at the proof rack, turns **golden** when baked); the
+  loaf is **scored** before the oven. Loops once every item has cooled.
+- **Step 9 — conveyor feed + KPIs.** ✅ Raw dough arrives on an **animated feed
+  conveyor**; a HUD KPI panel shows finished loaves, **throughput/min**, uptime,
+  trays completed, and rejects, plus the live pipeline counts per station.
+  **90 headless tests pass.**
 
 ## Test
 
@@ -108,10 +113,11 @@ block) — they are also exactly what the headless tests compile and run.
 |---|---|
 | `src/00_math.src` | scalar helpers + a plain `Vec3` value type |
 | `src/01_armspec.src` | arm geometry, joint limits, rest pose, actuator params |
-| `src/01b_layout.src` | workcell layout: bin/tray/dough positions (shared) |
+| `src/01b_layout.src` | product sizing, kinds, rest heights, run length |
+| `src/01c_stations.src` | the production pipeline: station layout, routing, process timing |
 | `src/02_kinematics.src` | forward + inverse kinematics, damped actuators |
 | `src/02b_hydraulics.src` | flow-limited cylinder linkage + pressure proxy |
-| `src/02c_task.src` | dough objects, grasp/release, payload gravity |
+| `src/02c_task.src` | dough items, grip-force, gravity, processes, scheduler |
 | `src/03_ffi.src` | raylib + rlgl FFI, `Vector3`/`Color` helpers, window + palette |
 | `src/04_arm.src` | 4-DOF arm FK rendering + hydraulic cylinders |
 | `src/05_scene.src` | table, dough bin, baking tray, floor |

@@ -44,42 +44,22 @@ func draw_table() {
     draw_leg(ix, iz)
 }
 
-// ── dough bin (container only — the dough balls are drawn from the live set) ─
-func draw_bin() {
-    bx := BIN_X()
-    bz := BIN_Z()
-    w := 1.4
-    d := 1.4
-    wall := 0.45
-    th := 0.06
-    // base slab
-    rlPushMatrix()
-    rlTranslatef(bx, 0.04, bz)
-    DrawCube(v3z(), w, 0.08, d, C_BIN())
-    rlPopMatrix()
-    // four walls
-    cy := wall / 2.0
-    rlPushMatrix() rlTranslatef(bx, cy, bz - d / 2.0) DrawCube(v3z(), w, wall, th, C_BIN()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(bx, cy, bz + d / 2.0) DrawCube(v3z(), w, wall, th, C_BIN()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(bx - w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(bx + w / 2.0, cy, bz) DrawCube(v3z(), th, wall, d, C_BIN()) rlPopMatrix()
-}
-
-// a single dough item: round ball or baguette, oriented by heading, tinted by
-// placed/spoiled state, flattened by grip squish
-func draw_dough(p, placed, squish, spoiled, kind, heading) {
+// a single dough item: ball or baguette, oriented by heading, grown by proof
+// rise, tinted golden once baked / dark if crushed, flattened by grip squish
+func draw_dough(p, kind, heading, squish, risen, baked, spoiled) {
     c := C_DOUGH()
-    if placed { c = col(214, 170, 110) }   // golden once set on the tray
-    if spoiled == 1 { c = col(150, 70, 60) }   // crushed = ruined, dark
-    sy := clampf(squish, 0.4, 1.0)
-    sxz := 1.0 / sqrt(sy)                   // bulge sideways as it flattens
+    if baked == 1 { c = col(204, 150, 92) }     // golden-brown once baked
+    if spoiled == 1 { c = col(150, 70, 60) }    // crushed = ruined, dark
+    sq := clampf(squish, 0.4, 1.0)
+    sy := risen * sq
+    sxz := risen / sqrt(sq)
     rlPushMatrix()
     rlTranslatef(p.x, p.y, p.z)
     rlRotatef(heading, 0.0, 1.0, 0.0)
     rlScalef(sxz, sy, sxz)
     if kind == KIND_BAGUETTE() {
         r := DOUGH_R()
-        h := BAG_LEN() / 2.0 - r            // capsule end-cap centers, along local X
+        h := BAG_LEN() / 2.0 - r
         DrawCapsule(v3(0.0 - h, 0.0, 0.0), v3(h, 0.0, 0.0), r, 12, 8, c)
     } else {
         DrawSphere(v3z(), DOUGH_R(), c)
@@ -87,37 +67,92 @@ func draw_dough(p, placed, squish, spoiled, kind, heading) {
     rlPopMatrix()
 }
 
-// ── baking tray ─────────────────────────────────────────────────────────────
-func draw_slot_grid() {
+// ── stations ──────────────────────────────────────────────────────────────
+func draw_pad(c, size, col_) {
+    rlPushMatrix()
+    rlTranslatef(c.x, 0.03, c.z)
+    DrawCube(v3z(), size, 0.06, size, col_)
+    DrawCubeWires(v3z(), size, 0.06, size, C_TABLE_LEG())
+    rlPopMatrix()
+}
+
+func draw_low_walls(c, size, hh, col_) {
+    th := 0.06
+    cy := hh / 2.0
+    rlPushMatrix() rlTranslatef(c.x, cy, c.z - size / 2.0) DrawCube(v3z(), size, hh, th, col_) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x, cy, c.z + size / 2.0) DrawCube(v3z(), size, hh, th, col_) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x - size / 2.0, cy, c.z) DrawCube(v3z(), th, hh, size, col_) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x + size / 2.0, cy, c.z) DrawCube(v3z(), th, hh, size, col_) rlPopMatrix()
+}
+
+func draw_slot_marks(st) {
     k := 0
-    while k < N_SLOTS() {
-        x, z := slot_xz(k)
+    while k < N_DOUGH() {
+        x, z := station_slot_xz(st, k)
         rlPushMatrix()
         rlTranslatef(x, 0.065, z)
-        DrawCube(v3z(), 0.42, 0.012, 0.42, C_TRAY_RIM())
+        DrawCube(v3z(), 0.36, 0.012, 0.36, C_TRAY_RIM())
         rlPopMatrix()
         k = k + 1
     }
 }
 
-func draw_tray() {
-    tx := TRAY_X()
-    tz := TRAY_Z()
-    w := 1.8
-    d := 2.6
-    // tray floor
+// open-top, open-front hearth oven (3 low walls + a glowing heat bar)
+func draw_oven(c) {
+    size := 1.35
+    hh := 0.55
+    th := 0.08
+    dk := col(42, 42, 48)
+    draw_pad(c, size, dk)
+    cy := hh / 2.0
+    rlPushMatrix() rlTranslatef(c.x, cy, c.z - size / 2.0) DrawCube(v3z(), size, hh, th, dk) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x - size / 2.0, cy, c.z) DrawCube(v3z(), th, hh, size, dk) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x + size / 2.0, cy, c.z) DrawCube(v3z(), th, hh, size, dk) rlPopMatrix()
+    // glowing heating element along the back
+    rlPushMatrix() rlTranslatef(c.x, 0.13, c.z - size / 2.0 + 0.12) DrawCube(v3z(), size * 0.8, 0.05, 0.05, col(240, 120, 40)) rlPopMatrix()
+}
+
+// an animated feed conveyor: moving cross-slats under the raw dough
+func draw_conveyor(c, size, t) {
     rlPushMatrix()
-    rlTranslatef(tx, 0.03, tz)
-    DrawCube(v3z(), w, 0.06, d, C_TRAY())
+    rlTranslatef(c.x, 0.03, c.z)
+    DrawCube(v3z(), size, 0.06, size, col(34, 34, 40))
     rlPopMatrix()
-    // thin rim
-    rim := 0.10
-    cy := rim / 2.0 + 0.06
-    th := 0.05
-    rlPushMatrix() rlTranslatef(tx, cy, tz - d / 2.0) DrawCube(v3z(), w, rim, th, C_TRAY_RIM()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(tx, cy, tz + d / 2.0) DrawCube(v3z(), w, rim, th, C_TRAY_RIM()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(tx - w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
-    rlPushMatrix() rlTranslatef(tx + w / 2.0, cy, tz) DrawCube(v3z(), th, rim, d, C_TRAY_RIM()) rlPopMatrix()
-    // 2x3 slot markers (where dough will be placed)
-    draw_slot_grid()
+    // side rails
+    th := 0.07
+    rlPushMatrix() rlTranslatef(c.x, 0.10, c.z - size / 2.0) DrawCube(v3z(), size, 0.14, th, col(70, 72, 82)) rlPopMatrix()
+    rlPushMatrix() rlTranslatef(c.x, 0.10, c.z + size / 2.0) DrawCube(v3z(), size, 0.14, th, col(70, 72, 82)) rlPopMatrix()
+    // moving slats (advance toward +x, the pick side)
+    sp := 0.28
+    off := fmod(t * 0.6, sp)
+    x := c.x - size / 2.0 + off
+    while x < c.x + size / 2.0 {
+        rlPushMatrix()
+        rlTranslatef(x, 0.07, c.z)
+        DrawCube(v3z(), 0.06, 0.02, size * 0.9, col(96, 98, 110))
+        rlPopMatrix()
+        x = x + sp
+    }
+}
+
+func draw_stations(t) {
+    // BIN — raw dough arrives on a moving feed conveyor
+    cb := station_center(ST_BIN())
+    draw_conveyor(cb, 1.35, t)
+    draw_slot_marks(ST_BIN())
+
+    // PROOF — warm wooden rack
+    cp := station_center(ST_PROOF())
+    draw_pad(cp, 1.35, col(150, 120, 84))
+    draw_slot_marks(ST_PROOF())
+
+    // OVEN — dark hearth with a glowing element
+    draw_oven(station_center(ST_OVEN()))
+    draw_slot_marks(ST_OVEN())
+
+    // COOL — wire cooling tray
+    cc := station_center(ST_COOL())
+    draw_pad(cc, 1.35, C_TRAY())
+    draw_low_walls(cc, 1.35, 0.10, C_TRAY_RIM())
+    draw_slot_marks(ST_COOL())
 }

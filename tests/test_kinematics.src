@@ -143,31 +143,33 @@ func main() {
     check("both branches reach the same target",
           vapprox(fk_tip(u1, u2, u3, u4), fk_tip(d1, d2, d3, d4), 0.0001))
 
-    // --- layout: slots & bin positions ---
-    check("dough count = slot count", N_DOUGH() == N_SLOTS())
-    s0 := slot_pos(0)
-    s5 := slot_pos(5)
-    check("slot rest height = tray", approx(s0.y, DOUGH_REST_TRAY(), 0.0001))
-    check("slots are distinct", vdist(s0, s5) > 0.1)
-    check("slot near tray x", approx(s0.x, TRAY_X(), 0.6) == true)
-    b0 := bin_pos(0)
-    b5 := bin_pos(5)
-    check("bin rest height", approx(b0.y, DOUGH_REST_BIN(), 0.0001))
-    check("bin positions distinct", vdist(b0, b5) > 0.1)
+    // --- stations: layout + routing ---
+    check("4 stations", N_STATIONS() == 4)
+    check("next: bin->proof", next_station(ST_BIN()) == ST_PROOF())
+    check("next: proof->oven", next_station(ST_PROOF()) == ST_OVEN())
+    check("next: oven->cool", next_station(ST_OVEN()) == ST_COOL())
+    sp0 := station_slot_pos(ST_PROOF(), 0)
+    sp3 := station_slot_pos(ST_PROOF(), 3)
+    check("station slots rest on table", approx(sp0.y, DOUGH_REST_TRAY(), 0.0001))
+    check("station slots distinct", vdist(sp0, sp3) > 0.1)
+    check("proof + oven are timed", proc_dur(ST_PROOF()) > 0.0)
+    check("bin is instant", approx(proc_dur(ST_BIN()), 0.0, 0.0001))
 
     // --- task: dough set, grasp/release, gravity settle ---
     ds := mk_dough_set()
     check("dough set size", len(ds) == N_DOUGH())
-    check("dough start in bin (state 0)", ds[0].state == 0)
-    check("dough start at bin pos", vapprox(ds[0].pos, bin_pos(0), 0.0001))
+    check("dough start resting in bin", ds[0].state == 0)
+    check("dough start at bin station", ds[0].station == ST_BIN())
+    check("dough start at bin slot", vapprox(ds[0].pos, station_slot_pos(ST_BIN(), 0), 0.0001))
 
     gd := dough_grasp(ds[0])
     check("grasp -> state 1", gd.state == 1)
-    rd := dough_release(gd)
-    check("release -> state 2", rd.state == 2)
+    rd := dough_release(gd, ST_PROOF())
+    check("release -> state 2 (falling)", rd.state == 2)
+    check("release sets destination station", rd.station == ST_PROOF())
 
-    // a released ball above the tray falls and settles in its slot
-    fall := Dough{Vec3{TRAY_X(), 1.0, 0.0}, Vec3{0.0, 0.0, 0.0}, 2, 0, 1.0, 0, 0, 0.0}
+    // a released item above a slot falls and settles
+    fall := Dough{Vec3{1.9, 1.0, 0.9}, Vec3{0.0, 0.0, 0.0}, 2, ST_PROOF(), 0.0, 1.0, 0, 0, 1.0, 0, 0, 0.0}
     miny := 999.0
     fi := 0
     while fi < 200 {
@@ -175,13 +177,29 @@ func main() {
         if fall.pos.y < miny { miny = fall.pos.y }
         fi = fi + 1
     }
-    check("dough lands (state 3)", fall.state == 3)
-    check("dough rests at tray height", approx(fall.pos.y, DOUGH_REST_TRAY(), 0.0001))
+    check("dough lands (resting)", fall.state == 0)
+    check("dough rests at table height", approx(fall.pos.y, DOUGH_REST_TRAY(), 0.0001))
     check("dough never sinks below rest", miny >= DOUGH_REST_TRAY() - 0.0001)
 
-    // a ball still in the bin is untouched by gravity
-    still := dough_fall(ds[1], 1.0 / 60.0)
-    check("in-bin dough unaffected by gravity", vapprox(still.pos, ds[1].pos, 0.0001))
+    // --- processes: proof rises, oven bakes, scheduler picks furthest-along ---
+    pf := ds[0]   // resting at proof
+    pf = Dough{station_slot_pos(ST_PROOF(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_PROOF(), 0.0, 1.0, 0, 0, 1.0, 0, 0, 0.0}
+    pi := 0
+    while pi < 240 { pf = item_process(pf, 1.0 / 60.0)  pi = pi + 1 }
+    check("proofing makes dough rise", pf.risen > 1.0)
+    check("proofed dough is ready", ready_to_advance(pf))
+    ov := Dough{station_slot_pos(ST_OVEN(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_OVEN(), 0.0, 1.2, 0, 1, 1.0, 0, 0, 0.0}
+    oi := 0
+    while oi < 300 { ov = item_process(ov, 1.0 / 60.0)  oi = oi + 1 }
+    check("oven bakes the dough", ov.baked == 1)
+    // scheduler: among a bin item + an oven-ready item, pick the oven one
+    sched := []Dough{}
+    sched = append(sched, mk_item(0))                 // raw in bin (ready)
+    sched = append(sched, ov)                         // baked in oven (ready)
+    jidx, jfound := choose_job(sched)
+    check("scheduler finds a job", jfound)
+    check("scheduler prefers furthest-along", jidx == 1)
+    check("cooled item is not 'ready'", ready_to_advance(Dough{station_slot_pos(ST_COOL(), 0), Vec3{0.0, 0.0, 0.0}, 0, ST_COOL(), 0.0, 1.0, 1, 1, 1.0, 0, 0, 0.0}) == false)
 
     // --- grip-force mechanics + dough deformation ---
     r := DOUGH_R()
@@ -208,7 +226,7 @@ func main() {
     crushed := dough_hold(ds[0], Vec3{1.0, 0.5, 0.0}, 0.0, 0.0)
     check("crush grip spoils dough", crushed.spoiled == 1)
     // released crushed dough keeps a flattened set
-    rel := dough_release(crushed)
+    rel := dough_release(crushed, ST_OVEN())
     check("released crushed dough stays flat", rel.squish < 1.0)
 
     // --- products: kinds alternate, baguettes get a heading ---

@@ -1,15 +1,7 @@
 // machin-demo-game-robotic-arm — 01b_layout.src
-// Workcell layout that BOTH the simulation (task logic) and the renderer need:
-// bin/tray placement, dough sizing, rest heights, and the source/destination
-// positions for pick-and-place. Pure (no extern) so the task logic + its
-// headless tests can use it; the scene renderer reads the same values, so the
-// drawn world and the simulated world never drift.
-
-// ── placement (centers on the table top, which is the y=0 plane) ──────────
-func BIN_X() (v)   { v = 0.0 - 2.0 }
-func BIN_Z() (v)   { v = 0.40 }
-func TRAY_X() (v)  { v = 2.0 }
-func TRAY_Z() (v)  { v = 0.0 }
+// Product sizing, rest heights, kinds, and run length. Pure (no extern) so the
+// task logic + tests use it; the renderer reads the same values. Station
+// placement + the production pipeline live in 01c_stations.src.
 
 func DOUGH_R() (v) { v = 0.24 }
 
@@ -24,45 +16,16 @@ func item_kind(k) (kind) {
     if k % 2 == 1 { kind = KIND_BAGUETTE() }
 }
 
-// the heading (yaw, deg) a kind should rest at: balls don't care (0),
-// baguettes lie along Z (the row direction) so they fit the slot grid
+// the heading (yaw, deg) a kind rests at: balls don't care (0), baguettes lie
+// along Z so they fit the slot grid
 func item_heading(kind) (h) {
     h = 0.0
     if kind == KIND_BAGUETTE() { h = 90.0 }
 }
 
-// rest heights (sphere CENTER y)
-func TRAY_SURF() (v)       { v = 0.06 }                 // tray floor top
-func DOUGH_REST_BIN() (v)  { v = DOUGH_R() }            // on the table, in the bin
+// rest height (sphere CENTER y): every station sits on the table top
+func TRAY_SURF() (v)       { v = 0.06 }
 func DOUGH_REST_TRAY() (v) { v = TRAY_SURF() + DOUGH_R() }
 
-// ── counts ────────────────────────────────────────────────────────────────
-func N_DOUGH() (n) { n = 6 }
-func N_SLOTS() (n) { n = 6 }
-
-// ── baking-tray slot grid (2 cols x 3 rows) ──────────────────────────────
-func SLOT_COLS() (n) { n = 2 }
-func SLOT_ROWS() (n) { n = 3 }
-func SLOT_SX() (v)   { v = 0.55 }
-func SLOT_SZ() (v)   { v = 0.72 }
-
-func slot_xz(k) (x, z) {
-    ci := k % SLOT_COLS()
-    ri := k / SLOT_COLS()
-    x = TRAY_X() + (float(ci) - 0.5) * SLOT_SX()
-    z = TRAY_Z() + (float(ri) - 1.0) * SLOT_SZ()
-}
-
-func slot_pos(k) (p) {
-    x, z := slot_xz(k)
-    p = Vec3{x, DOUGH_REST_TRAY(), z}
-}
-
-// ── dough source positions in the bin (3 cols x 2 rows) ──────────────────
-func bin_pos(k) (p) {
-    ci := k % 3
-    ri := k / 3
-    x := BIN_X() + (float(ci) - 1.0) * 0.42
-    z := BIN_Z() + (float(ri) - 0.5) * 0.50
-    p = Vec3{x, DOUGH_REST_BIN(), z}
-}
+// run length: N items, each owning slot index 0..N-1 at every station (2x2 grid)
+func N_DOUGH() (n) { n = 4 }
