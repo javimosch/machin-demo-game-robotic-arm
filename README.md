@@ -72,10 +72,37 @@ See [`docs/BRAINSTORM.md`](docs/BRAINSTORM.md) for the full design.
   when idle. Two arms run concurrently with a clean handoff at the cool tray
   (`bin→proof→oven→cool` **→ rail →** `display`). **106 headless tests pass.**
 
+## Neural reacher (ml/)
+
+The arm is also a machine-learning benchmark: `ml/` trains a tiny neural network
+(via [tinybrain](https://github.com/javimosch/tinybrain), vendored in
+`ml/vendor/`) to do `ik_wrist_auto`'s job **in closed loop** — 13 inputs (joints,
+joint velocities, wrist→target error at two scales) → 3 joint-velocity commands,
+under the same vmax/amax actuator caps as the analytic controller. Because the
+analytic IK is exact, it is a **ground-truth baseline** the learned policy is
+measured against, honestly:
+
+- **Pure evolution from scratch plateaus** far from the baseline (the Cartesian→
+  joint mapping is a pose-dependent Jacobian — hard for a GA alone).
+- The shipped pipeline is **behavior cloning + fine-tuning**: SGD clones the
+  analytic controller from 4k expert-labeled states (half sampled in the
+  near-target endgame regime) plus a DAgger round on the clone's own
+  trajectories, then `evolve_run` with `warm_start` (a tinybrain feature this
+  demo drove upstream) fine-tunes on the closed-loop episode score.
+- **Result** (`ml/models/reacher.json`, committed): the fine-tuned policy
+  **beats the analytic controller's episode score on training targets**
+  (−21.06 vs −21.40) and reaches **46/50 held-out targets** within a 6 cm
+  tolerance at a mean time-to-reach only ~4% slower than the IK (124 vs 120
+  ticks). The remaining 4 are hover-just-outside failures — reported, not hidden.
+
+Retrain (~2 min, deterministic): see the header of `ml/reach_train.src`.
+The ml suite in `./tests/run_tests.sh` evaluates the committed artifact against
+the analytic IK on 50 held-out targets — no retraining in tests.
+
 ## Test
 
 ```sh
-./tests/run_tests.sh   # encodes + runs the pure simulation core, headless (no raylib)
+./tests/run_tests.sh   # pure sim core + the ml reacher-vs-IK benchmark, headless (no raylib)
 ```
 
 ## Build & run

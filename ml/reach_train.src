@@ -1,0 +1,111 @@
+// ml/reach_train.src — train the neural reacher and benchmark it against the
+// analytic IK, using BOTH tinybrain trainers the way the framework intends:
+//   1. behavior cloning (SGD): the analytic controller labels random states —
+//      for any (pose, target), the ideal joint-velocity command is known
+//   2. fine-tune (evolve, warm_start): optimize the clone on the closed-loop
+//      episode score, where small imitation errors compound
+// Pure evolution from scratch plateaus far from the baseline (kept in the
+// README as the honest negative result — that's WHY the clone step exists).
+//
+// Run:
+//   machin encode src/00_math.src src/01_armspec.src src/02_kinematics.src \
+//     ml/vendor/tinybrain.src ml/vendor/evolve.src ml/reacher.src ml/reach_train.src \
+//     > /tmp/rt.mfl && machin run /tmp/rt.mfl
+// Outputs ml/models/reacher.json + ml/models/reach_train.jsonl
+
+// the expert's answer for one (state, target): per-joint velocity commands in
+// [-1,1] — exactly the P-law joint_step applies toward the IK solution
+func expert_cmds(s, target) (y) {
+	g1, g2, g3, _ := ik_wrist_auto(target)
+	y = []float{}
+	y = append(y, clampf(ACT_GAIN(0) * (g1 - s.j1), 0.0 - ACT_VMAX(0), ACT_VMAX(0)) / ACT_VMAX(0))
+	y = append(y, clampf(ACT_GAIN(1) * (g2 - s.j2), 0.0 - ACT_VMAX(1), ACT_VMAX(1)) / ACT_VMAX(1))
+	y = append(y, clampf(ACT_GAIN(2) * (g3 - s.j3), 0.0 - ACT_VMAX(2), ACT_VMAX(2)) / ACT_VMAX(2))
+}
+
+// dataset: random poses x random reachable targets, labeled by the expert.
+// HALF the samples put the target NEAR the current wrist — random-pose sampling
+// alone almost never shows small errors, and a clone that is sloppy near zero
+// error hovers outside the tolerance forever (measured: 3/50 without this).
+func clone_dataset(nsamples, seed) (ds) {
+	ds = Dataset{}
+	tb_seed(seed)
+	i := 0
+	while i < nsamples {
+		s := RArm{j1: tb_randf_range(J1_MIN(), J1_MAX()), v1: tb_randf_range(0.0 - ACT_VMAX(0), ACT_VMAX(0)), j2: tb_randf_range(J2_MIN(), J2_MAX()), v2: tb_randf_range(0.0 - ACT_VMAX(1), ACT_VMAX(1)), j3: tb_randf_range(J3_MIN(), J3_MAX()), v3: tb_randf_range(0.0 - ACT_VMAX(2), ACT_VMAX(2))}
+		t := reach_sample_target()
+		if i % 2 == 1 {
+			// endgame regime: a target a few cm from where the wrist already is
+			w := reach_wrist(s)
+			off := tb_randf_range(0.01, 0.30)
+			dx := tb_randf_range(-1.0, 1.0)
+			dy := tb_randf_range(-1.0, 1.0)
+			dz := tb_randf_range(-1.0, 1.0)
+			dl := sqrt(dx * dx + dy * dy + dz * dz)
+			if dl < 0.0001 {
+				dl = 1.0
+			}
+			t = Vec3{w.x + dx / dl * off, w.y + dy / dl * off, w.z + dz / dl * off}
+		}
+		ds.x = append(ds.x, reach_inputs(s, t))
+		ds.y = append(ds.y, expert_cmds(s, t))
+		i = i + 1
+	}
+}
+
+func main() {
+	hold := 150   // 2.5 s per target
+	train := reach_targets(16, 42)
+	base := reach_episode_ik(train, hold)
+
+	// ── phase 1: behavior-clone the analytic controller (supervised) ──
+	ds := clone_dataset(4000, 42)
+	n := net_new([]int{13, 20, 3}, []string{"tanh", "tanh"}, 42)
+	t0 := now_ms()
+	loss := net_train_sgd(n, ds, 250, 0.02)
+	// DAgger round: label the states the CLONE actually visits with the expert,
+	// aggregate, retrain — fixes compounding imitation error off the expert's
+	// state distribution
+	for _, tgt := range train {
+		s := reach_rest()
+		k := 0
+		while k < hold {
+			out := net_forward(n, reach_inputs(s, tgt))
+			s = reach_step(s, out)
+			if k % 2 == 0 {
+				ds.x = append(ds.x, reach_inputs(s, tgt))
+				ds.y = append(ds.y, expert_cmds(s, tgt))
+			}
+			k = k + 1
+		}
+	}
+	loss = net_train_sgd(n, ds, 120, 0.01)
+	cloneMs := now_ms() - t0
+	cloneScore := reach_episode_net(n, train, hold)
+	println("{\"phase\":\"clone\",\"mse\":" + tb_fmt(loss) + ",\"episode_score\":" + tb_fmt(cloneScore) + ",\"baseline_ik\":" + tb_fmt(base) + ",\"ms\":" + str(cloneMs) + "}")
+	flush()
+
+	// ── phase 2: evolve fine-tunes the clone on the closed-loop score ──
+	fit := func(nn) {
+		return reach_episode_net(nn, train, hold)
+	}
+	cfg := evolve_cfg_default()
+	cfg.pop = 60
+	cfg.generations = 500
+	cfg.mut_rate = 0.10
+	cfg.mut_sigma = 0.06
+	cfg.warm_start = true
+	cfg.log_path = "ml/models/reach_train.jsonl"
+	cfg.print_every = 20
+	t0 = now_ms()
+	res, champ := evolve_run(n, fit, cfg)
+	tuneMs := now_ms() - t0
+	net_save(champ, "ml/models/reacher.json")
+
+	// ── benchmark on 50 held-out targets ──
+	held := reach_targets(50, 777)
+	budget := 240   // 4 s per target
+	evn := reach_eval_net(champ, held, budget)
+	evk := reach_eval_ik(held, budget)
+	println("{\"artifact\":\"ml/models/reacher.json\",\"clone\":{\"mse\":" + tb_fmt(loss) + ",\"score\":" + tb_fmt(cloneScore) + ",\"ms\":" + str(cloneMs) + "},\"finetune\":{\"score\":" + tb_fmt(res.best_fitness) + ",\"generations\":" + str(res.generations) + ",\"ms\":" + str(tuneMs) + "},\"analytic_ik_score\":" + tb_fmt(base) + ",\"heldout_50\":{\"net_reached\":" + str(evn.reached) + ",\"net_mean_ticks\":" + tb_fmt(evn.mean_ticks) + ",\"ik_reached\":" + str(evk.reached) + ",\"ik_mean_ticks\":" + tb_fmt(evk.mean_ticks) + "}}")
+}

@@ -1,0 +1,240 @@
+// ml/reacher.src — the neural-reacher task over the arm's OWN kinematics core.
+// A tinybrain net drives joint velocities (j1,j2,j3) in closed loop to bring the
+// WRIST to a 3D target — the same job ik_wrist_auto solves analytically, which
+// makes the analytic IK a ground-truth baseline the learned policy is measured
+// against. Pure MFL, headless. Composes with:
+//   src/00_math.src src/01_armspec.src src/02_kinematics.src
+//   ml/vendor/tinybrain.src ml/vendor/evolve.src
+
+type RArm struct {
+	j1 float
+	v1 float
+	j2 float
+	v2 float
+	j3 float
+	v3 float
+}
+
+func reach_dt() (v) { v = 0.016666666667 }
+func reach_tol() (v) { v = 0.06 }   // "reached" = wrist within 6cm (2% of the 2.8 reach)
+
+func reach_rest() (s) {
+	s = RArm{j1: REST_J1(), v1: 0.0, j2: REST_J2(), v2: 0.0, j3: REST_J3(), v3: 0.0}
+}
+
+func reach_wrist(s) (p) {
+	p = fk_wrist(s.j1, s.j2, s.j3)
+}
+
+// net inputs (13), all roughly [-1,1]: current joints, joint VELOCITIES (the
+// damping channel — without it the policy limit-cycles around the target;
+// measured: every held-out failure hovered at 6-11cm), then the wrist→target
+// ERROR vector in the base-yaw-aligned frame at two scales (coarse for transit,
+// fine ×5 for the precision endgame), plus the scalar distance. The error
+// inputs are what make proportional control directly learnable — with only
+// absolute target coords the net would have to compute FK internally.
+func reach_inputs(s, target) (x) {
+	x = []float{}
+	x = append(x, s.j1 / 175.0)
+	x = append(x, s.j2 / 150.0)
+	x = append(x, s.j3 / 160.0)
+	x = append(x, s.v1 / ACT_VMAX(0))
+	x = append(x, s.v2 / ACT_VMAX(1))
+	x = append(x, s.v3 / ACT_VMAX(2))
+	w := reach_wrist(s)
+	e := vsub(target, w)
+	phi := deg2rad(s.j1)
+	eu := e.x * cos(phi) - e.z * sin(phi)
+	et := e.x * sin(phi) + e.z * cos(phi)
+	mr := MAX_REACH()
+	x = append(x, eu / mr)
+	x = append(x, e.y / mr)
+	x = append(x, et / mr)
+	x = append(x, clampf(5.0 * eu / mr, -1.0, 1.0))
+	x = append(x, clampf(5.0 * e.y / mr, -1.0, 1.0))
+	x = append(x, clampf(5.0 * et / mr, -1.0, 1.0))
+	x = append(x, vlen(e) / mr - 0.5)
+}
+
+// one joint under a velocity command in [-1,1]: the same vmax/amax caps the
+// analytic controller's joint_step obeys, so the comparison is apples-to-apples
+func reach_joint(angle, vel, cmd, jidx, lo, hi) (na, nv) {
+	desv := clampf(cmd, -1.0, 1.0) * ACT_VMAX(jidx)
+	dv := clampf(desv - vel, 0.0 - ACT_AMAX(jidx) * reach_dt(), ACT_AMAX(jidx) * reach_dt())
+	nv = vel + dv
+	na = angle + nv * reach_dt()
+	if na < lo {
+		na = lo
+		nv = 0.0
+	}
+	if na > hi {
+		na = hi
+		nv = 0.0
+	}
+}
+
+// advance the arm one tick under the net's 3 velocity commands
+func reach_step(s, out) (s2) {
+	a1, w1 := reach_joint(s.j1, s.v1, out[0], 0, J1_MIN(), J1_MAX())
+	a2, w2 := reach_joint(s.j2, s.v2, out[1], 1, J2_MIN(), J2_MAX())
+	a3, w3 := reach_joint(s.j3, s.v3, out[2], 2, J3_MIN(), J3_MAX())
+	s2 = RArm{j1: a1, v1: w1, j2: a2, v2: w2, j3: a3, v3: w3}
+}
+
+// a random reachable wrist target: yaw in ±150 deg, elevation -25..65 deg,
+// radial distance well inside [MIN_REACH, MAX_REACH], and above the table
+func reach_sample_target() (t) {
+	yaw := deg2rad(tb_randf_range(-150.0, 150.0))
+	elev := deg2rad(tb_randf_range(-25.0, 65.0))
+	d := tb_randf_range(MIN_REACH() + 0.35, MAX_REACH() - 0.15)
+	r := d * cos(elev)
+	y := SHOULDER_Y() + d * sin(elev)
+	if y < 0.35 {
+		y = 0.35
+	}
+	t = Vec3{BASE_X() + r * cos(yaw), y, BASE_Z() - r * sin(yaw)}
+}
+
+func reach_targets(n, seed) (ts) {
+	tb_seed(seed)
+	ts = []Vec3{}
+	i := 0
+	while i < n {
+		ts = append(ts, reach_sample_target())
+		i = i + 1
+	}
+}
+
+// ── episode: visit each target for `hold` ticks; reward = -distance integral
+// plus an in-tolerance bonus. Same score for the net and for the baseline. ──
+
+func reach_episode_net(n, targets, hold) (score) {
+	score = 0.0
+	for _, t := range targets {
+		s := reach_rest()
+		k := 0
+		while k < hold {
+			out := net_forward(n, reach_inputs(s, t))
+			s = reach_step(s, out)
+			d := vdist(reach_wrist(s), t)
+			score = score - d * reach_dt()
+			score = score + 0.5 * reach_dt() * exp(0.0 - d / 0.08)
+			score = score + 0.5 * reach_dt() * exp(0.0 - d / 0.03)
+			if d < reach_tol() {
+				score = score + 1.0 * reach_dt()
+			}
+			k = k + 1
+		}
+	}
+}
+
+// the analytic ground truth run through the arm's real actuator model
+// (ik_wrist_auto once per target, joints chase it via joint_step)
+func reach_episode_ik(targets, hold) (score) {
+	score = 0.0
+	for _, t := range targets {
+		s := reach_rest()
+		g1, g2, g3, _ := ik_wrist_auto(t)
+		k := 0
+		while k < hold {
+			jt1 := joint_step(Joint{s.j1, s.v1}, g1, reach_dt(), ACT_VMAX(0), ACT_AMAX(0), ACT_GAIN(0))
+			jt2 := joint_step(Joint{s.j2, s.v2}, g2, reach_dt(), ACT_VMAX(1), ACT_AMAX(1), ACT_GAIN(1))
+			jt3 := joint_step(Joint{s.j3, s.v3}, g3, reach_dt(), ACT_VMAX(2), ACT_AMAX(2), ACT_GAIN(2))
+			s.j1 = jt1.angle
+			s.v1 = jt1.vel
+			s.j2 = jt2.angle
+			s.v2 = jt2.vel
+			s.j3 = jt3.angle
+			s.v3 = jt3.vel
+			d := vdist(reach_wrist(s), t)
+			score = score - d * reach_dt()
+			score = score + 0.5 * reach_dt() * exp(0.0 - d / 0.08)
+			score = score + 0.5 * reach_dt() * exp(0.0 - d / 0.03)
+			if d < reach_tol() {
+				score = score + 1.0 * reach_dt()
+			}
+			k = k + 1
+		}
+	}
+}
+
+// ── evaluation: fraction of held-out targets reached (tol sustained 15 ticks)
+// within a tick budget, plus the mean time-to-reach of the successes ──
+
+type ReachEval struct {
+	reached int
+	total int
+	mean_ticks float
+}
+
+func reach_eval_net(n, targets, budget) (ev) {
+	ev = ReachEval{reached: 0, total: len(targets), mean_ticks: 0.0}
+	sumt := 0.0
+	for _, t := range targets {
+		s := reach_rest()
+		inside := 0
+		k := 0
+		hit := -1
+		while k < budget {
+			out := net_forward(n, reach_inputs(s, t))
+			s = reach_step(s, out)
+			if vdist(reach_wrist(s), t) < reach_tol() {
+				inside = inside + 1
+				if inside >= 15 {
+					hit = k
+					break
+				}
+			} else {
+				inside = 0
+			}
+			k = k + 1
+		}
+		if hit >= 0 {
+			ev.reached = ev.reached + 1
+			sumt = sumt + float(hit)
+		}
+	}
+	if ev.reached > 0 {
+		ev.mean_ticks = sumt / float(ev.reached)
+	}
+}
+
+func reach_eval_ik(targets, budget) (ev) {
+	ev = ReachEval{reached: 0, total: len(targets), mean_ticks: 0.0}
+	sumt := 0.0
+	for _, t := range targets {
+		s := reach_rest()
+		g1, g2, g3, _ := ik_wrist_auto(t)
+		inside := 0
+		k := 0
+		hit := -1
+		while k < budget {
+			jt1 := joint_step(Joint{s.j1, s.v1}, g1, reach_dt(), ACT_VMAX(0), ACT_AMAX(0), ACT_GAIN(0))
+			jt2 := joint_step(Joint{s.j2, s.v2}, g2, reach_dt(), ACT_VMAX(1), ACT_AMAX(1), ACT_GAIN(1))
+			jt3 := joint_step(Joint{s.j3, s.v3}, g3, reach_dt(), ACT_VMAX(2), ACT_AMAX(2), ACT_GAIN(2))
+			s.j1 = jt1.angle
+			s.v1 = jt1.vel
+			s.j2 = jt2.angle
+			s.v2 = jt2.vel
+			s.j3 = jt3.angle
+			s.v3 = jt3.vel
+			if vdist(reach_wrist(s), t) < reach_tol() {
+				inside = inside + 1
+				if inside >= 15 {
+					hit = k
+					break
+				}
+			} else {
+				inside = 0
+			}
+			k = k + 1
+		}
+		if hit >= 0 {
+			ev.reached = ev.reached + 1
+			sumt = sumt + float(hit)
+		}
+	}
+	if ev.reached > 0 {
+		ev.mean_ticks = sumt / float(ev.reached)
+	}
+}

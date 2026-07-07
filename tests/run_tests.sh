@@ -11,3 +11,10 @@ OUT="$(mktemp --suffix=.mfl)"
 
 cat $PURE | "$MACHIN" encode /dev/stdin > "$OUT"
 "$MACHIN" run "$OUT"
+
+# ml suite: the neural reacher (vendored tinybrain) benchmarked vs the analytic
+# IK, using the committed artifact ml/models/reacher.json. Also headless.
+ML="src/00_math.src src/01_armspec.src src/02_kinematics.src ml/vendor/tinybrain.src ml/vendor/evolve.src ml/reacher.src ml/reach_test.src"
+OUT2="$(mktemp --suffix=.mfl)"
+cat $ML | "$MACHIN" encode /dev/stdin > "$OUT2"
+"$MACHIN" run "$OUT2"

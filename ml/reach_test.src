@@ -1,0 +1,70 @@
+// ml/reach_test.src — headless tests for the neural reacher. Loads the
+// COMMITTED artifact ml/models/reacher.json (no retraining — training is
+// ml/reach_train.src) and asserts the benchmark against the analytic IK holds.
+// Run via tests/run_tests.sh (ml suite). Pure MFL, no raylib.
+
+var g_pass = 0
+var g_fail = 0
+
+func check(name, cond) {
+	if cond {
+		g_pass = g_pass + 1
+		println("  PASS  " + name)
+	} else {
+		g_fail = g_fail + 1
+		println("  FAIL  " + name)
+	}
+}
+
+func main() {
+	println("=== ml: neural reacher vs analytic IK ===")
+
+	// task plumbing
+	s := reach_rest()
+	x := reach_inputs(s, Vec3{1.5, 1.8, 0.4})
+	check("input vector is 13-wide", len(x) == 13)
+	okRange := true
+	for _, v := range x {
+		if absf(v) > 1.6 {
+			okRange = false
+		}
+	}
+	check("inputs normalized (|v| <= 1.6)", okRange)
+	tb_seed(9)
+	i := 0
+	allReachable := true
+	while i < 200 {
+		t := reach_sample_target()
+		_, _, _, ok := ik_wrist_auto(t)
+		if ok == false {
+			allReachable = false
+		}
+		i = i + 1
+	}
+	check("sampled targets are always IK-reachable", allReachable)
+
+	// the artifact
+	n := net_load("ml/models/reacher.json")
+	check("artifact loads (tinybrain/v1)", n.tinybrain == 1)
+	check("artifact topology 13-20-3", n.topology[0] == 13 && n.topology[2] == 3)
+	check("artifact trained by evolve", n.meta.trained_by == "evolve")
+
+	// the benchmark on 50 held-out targets (seed 777 — never used in training)
+	held := reach_targets(50, 777)
+	budget := 240
+	evk := reach_eval_ik(held, budget)
+	check("analytic IK reaches 50/50 held-out (sanity)", evk.reached == 50)
+	evn := reach_eval_net(n, held, budget)
+	println("  info  net reached " + str(evn.reached) + "/50, mean ticks " + str(evn.mean_ticks) + " (ik " + str(evk.mean_ticks) + ")")
+	check("net reaches >= 44/50 held-out targets", evn.reached >= 44)
+	check("net mean time-to-reach within 1.25x of analytic IK", evn.mean_ticks < evk.mean_ticks * 1.25)
+
+	println("=== summary ===")
+	println("PASS " + str(g_pass) + "   FAIL " + str(g_fail))
+	if g_fail == 0 {
+		println("ALL TESTS PASSED")
+	} else {
+		println("THERE WERE FAILURES")
+		exit(1)
+	}
+}
