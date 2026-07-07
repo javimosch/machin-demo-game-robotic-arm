@@ -99,6 +99,16 @@ Retrain (~2 min, deterministic): see the header of `ml/reach_train.src`.
 The ml suite in `./tests/run_tests.sh` evaluates the committed artifact against
 the analytic IK on 50 held-out targets — no retraining in tests.
 
+**Watch them race — [arm.intrane.fr/reach](https://arm.intrane.fr/reach/)**:
+`ml/reach_game.src` puts both controllers side by side chasing the *same*
+random target sequence under the same actuator limits, with a live scoreboard
+(targets reached at 6 cm sustained, mean time-to-reach). Blue = analytic IK,
+green = the tinybrain artifact. Native: `ml/build_game.sh` → `./reach-game`;
+web: `ml/build_web.sh` (same emscripten recipe as the main demo, the artifact
+embedded in the module's virtual FS). In continuous chase mode (no reset
+between targets — harder than the training protocol) the net still lands
+44/50 vs the IK's 50/50.
+
 ## Test
 
 ```sh

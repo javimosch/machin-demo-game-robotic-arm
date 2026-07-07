@@ -1,0 +1,187 @@
+// ml/reach_game.src — NEURO vs IK, head to head. Two identical arms chase the
+// SAME random target sequence: the left one driven by the analytic IK + the
+// joint_step P-law, the right one by the tinybrain artifact ml/models/reacher.json
+// (closed-loop joint-velocity control). Live scoreboard: targets reached
+// (6 cm tolerance sustained 15 ticks) and mean time-to-reach.
+// Build: ml/build_game.sh   Run from the repo root: ./reach-game
+
+extern "raylib" {
+	header "raylib.h"
+	link "raylib" link "GL" link "m" link "pthread" link "dl" link "rt" link "X11"
+	cstruct Color { r u8 g u8 b u8 a u8 }
+	cstruct Vector3 { x f32 y f32 z f32 }
+	cstruct Camera3D { position Vector3 target Vector3 up Vector3 fovy f32 projection i32 }
+	fn InitWindow(i32, i32, string)
+	fn SetTargetFPS(i32)
+	fn WindowShouldClose() bool
+	fn BeginDrawing()
+	fn EndDrawing()
+	fn ClearBackground(Color)
+	fn CloseWindow()
+	fn BeginMode3D(Camera3D)
+	fn EndMode3D()
+	fn DrawGrid(i32, f32)
+	fn DrawCylinderEx(Vector3, Vector3, f32, f32, i32, Color)
+	fn DrawSphere(Vector3, f32, Color)
+	fn DrawSphereWires(Vector3, f32, i32, i32, Color)
+	fn DrawCube(Vector3, f32, f32, f32, Color)
+	fn DrawText(string, i32, i32, i32, Color)
+}
+
+func rl_v3(v, off) (o) {
+	o = Vector3{v.x + off.x, v.y + off.y, v.z + off.z}
+}
+
+// elbow world position (the L2 term of fk_wrist)
+func fk_elbow(j1, j2) (p) {
+	a2 := deg2rad(j2)
+	u := 0.0 - L2() * sin(a2)
+	v := SHOULDER_Y() + L2() * cos(a2)
+	phi := deg2rad(j1)
+	p = Vec3{BASE_X() + u * cos(phi), v, BASE_Z() - u * sin(phi)}
+}
+
+func draw_arm(j1, j2, j3, off, body) {
+	base := Vec3{BASE_X(), 0.0, BASE_Z()}
+	shoulder := Vec3{BASE_X(), SHOULDER_Y(), BASE_Z()}
+	elbow := fk_elbow(j1, j2)
+	wrist := fk_wrist(j1, j2, j3)
+	steel := Color{120, 125, 135, 255}
+	DrawCube(rl_v3(Vec3{base.x, 0.2, base.z}, off), 0.7, 0.4, 0.7, Color{60, 62, 70, 255})
+	DrawCylinderEx(rl_v3(base, off), rl_v3(shoulder, off), 0.14, 0.12, 10, steel)
+	DrawCylinderEx(rl_v3(shoulder, off), rl_v3(elbow, off), 0.11, 0.09, 10, body)
+	DrawCylinderEx(rl_v3(elbow, off), rl_v3(wrist, off), 0.09, 0.07, 10, body)
+	DrawSphere(rl_v3(shoulder, off), 0.14, steel)
+	DrawSphere(rl_v3(elbow, off), 0.11, steel)
+	DrawSphere(rl_v3(wrist, off), 0.09, Color{250, 250, 250, 255})
+}
+
+func fmt2g(v) (s) {
+	w := int(floor(v * 100.0 + 0.5))
+	frac := str(w % 100)
+	if len(frac) == 1 {
+		frac = "0" + frac
+	}
+	s = str(w / 100) + "." + frac
+}
+
+func main() {
+	src := read_file("ml/models/reacher.json")
+	if len(src) == 0 {
+		println("ml/models/reacher.json missing — run ml/reach_train.src first")
+		exit(1)
+	}
+	n := net_load("ml/models/reacher.json")
+
+	tb_seed(20260707)
+	target := reach_sample_target()
+
+	// the two contestants
+	sik := reach_rest()
+	g1, g2, g3, _ := ik_wrist_auto(target)
+	snet := reach_rest()
+
+	// per-controller scoreboard
+	ikReached := 0
+	ikSum := 0.0
+	ikInside := 0
+	ikHit := -1
+	netReached := 0
+	netSum := 0.0
+	netInside := 0
+	netHit := -1
+	seen := 1
+	tick := 0
+	holdTicks := 300   // 5 s per target at 60 fps
+
+	offIK := Vec3{-2.9, 0.0, 0.0}
+	offNET := Vec3{2.9, 0.0, 0.0}
+	colIK := Color{90, 160, 235, 255}
+	colNET := Color{80, 220, 100, 255}
+	hud := Color{235, 235, 235, 255}
+
+	orbitT := 0
+	InitWindow(1100, 700, "tinybrain reacher - NEURO vs IK")
+	SetTargetFPS(60)
+	for WindowShouldClose() == false {
+		// ── sim: one tick each ──
+		jt1 := joint_step(Joint{sik.j1, sik.v1}, g1, reach_dt(), ACT_VMAX(0), ACT_AMAX(0), ACT_GAIN(0))
+		jt2 := joint_step(Joint{sik.j2, sik.v2}, g2, reach_dt(), ACT_VMAX(1), ACT_AMAX(1), ACT_GAIN(1))
+		jt3 := joint_step(Joint{sik.j3, sik.v3}, g3, reach_dt(), ACT_VMAX(2), ACT_AMAX(2), ACT_GAIN(2))
+		sik = RArm{j1: jt1.angle, v1: jt1.vel, j2: jt2.angle, v2: jt2.vel, j3: jt3.angle, v3: jt3.vel}
+		out := net_forward(n, reach_inputs(snet, target))
+		snet = reach_step(snet, out)
+
+		dik := vdist(reach_wrist(sik), target)
+		dnet := vdist(reach_wrist(snet), target)
+		if dik < reach_tol() {
+			ikInside = ikInside + 1
+			if ikInside >= 15 && ikHit < 0 {
+				ikHit = tick
+				ikReached = ikReached + 1
+				ikSum = ikSum + float(tick)
+			}
+		} else {
+			ikInside = 0
+		}
+		if dnet < reach_tol() {
+			netInside = netInside + 1
+			if netInside >= 15 && netHit < 0 {
+				netHit = tick
+				netReached = netReached + 1
+				netSum = netSum + float(tick)
+			}
+		} else {
+			netInside = 0
+		}
+
+		tick = tick + 1
+		orbitT = orbitT + 1
+		if tick >= holdTicks {
+			target = reach_sample_target()
+			g1, g2, g3, _ = ik_wrist_auto(target)
+			seen = seen + 1
+			tick = 0
+			ikInside = 0
+			ikHit = -1
+			netInside = 0
+			netHit = -1
+		}
+
+		// ── draw ──
+		BeginDrawing()
+		ClearBackground(Color{18, 20, 26, 255})
+		ca := float(orbitT) * 0.0025
+		cam := Camera3D{Vector3{9.5 * sin(ca + 1.57), 6.0, 9.5 * cos(ca + 1.57)}, Vector3{0.0, 1.2, 0.0}, Vector3{0.0, 1.0, 0.0}, 50.0, 0}
+		BeginMode3D(cam)
+		DrawGrid(24, 0.5)
+		draw_arm(sik.j1, sik.j2, sik.j3, offIK, colIK)
+		draw_arm(snet.j1, snet.j2, snet.j3, offNET, colNET)
+		// the shared target, one marker per side, tolerance shell around each
+		mk := Color{240, 200, 60, 255}
+		pole := Color{240, 200, 60, 70}
+		DrawCylinderEx(rl_v3(Vec3{target.x, 0.0, target.z}, offIK), rl_v3(target, offIK), 0.012, 0.012, 6, pole)
+		DrawCylinderEx(rl_v3(Vec3{target.x, 0.0, target.z}, offNET), rl_v3(target, offNET), 0.012, 0.012, 6, pole)
+		DrawSphere(rl_v3(target, offIK), 0.07, mk)
+		DrawSphere(rl_v3(target, offNET), 0.07, mk)
+		shellIK := Color{90, 160, 235, 90}
+		shellNET := Color{80, 220, 100, 90}
+		if ikHit >= 0 { shellIK = Color{90, 160, 235, 255} }
+		if netHit >= 0 { shellNET = Color{80, 220, 100, 255} }
+		DrawSphereWires(rl_v3(target, offIK), reach_tol() * 2.2, 8, 8, shellIK)
+		DrawSphereWires(rl_v3(target, offNET), reach_tol() * 2.2, 8, 8, shellNET)
+		EndMode3D()
+
+		DrawText("ANALYTIC IK", 60, 20, 24, colIK)
+		DrawText("TINYBRAIN NET", 780, 20, 24, colNET)
+		DrawText("same targets, same actuator limits - the net is ml/models/reacher.json (clone + evolve)", 60, 52, 16, Color{150, 155, 165, 255})
+		ikMean := 0.0
+		if ikReached > 0 { ikMean = ikSum / float(ikReached) / 60.0 }
+		netMean := 0.0
+		if netReached > 0 { netMean = netSum / float(netReached) / 60.0 }
+		DrawText("reached " + str(ikReached) + "/" + str(seen) + "   mean " + fmt2g(ikMean) + "s   dist " + fmt2g(dik * 100.0) + "cm", 60, 640, 20, hud)
+		DrawText("reached " + str(netReached) + "/" + str(seen) + "   mean " + fmt2g(netMean) + "s   dist " + fmt2g(dnet * 100.0) + "cm", 640, 640, 20, hud)
+		EndDrawing()
+	}
+	CloseWindow()
+}
